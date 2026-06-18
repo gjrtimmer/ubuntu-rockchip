@@ -117,6 +117,7 @@ jobs:
             name: ubuntu-${{ matrix.suite == 'jammy' && '22.04' || matrix.suite == 'noble' && '24.04' }}-preinstalled-${{ matrix.flavor }}-arm64-rootfs
             path: ./build/ubuntu-${{ matrix.suite == 'jammy' && '22.04' || matrix.suite == 'noble' && '24.04' }}-preinstalled-${{ matrix.flavor }}-arm64.rootfs.tar.xz
             if-no-files-found: error
+            retention-days: 1
 
   kernel:
     runs-on: [self-hosted, ARM64, RK1]
@@ -132,9 +133,47 @@ jobs:
         shell: bash
         run: git lfs fetch && git lfs checkout
 
-      - name: Build
+      - name: Resolve kernel cache key
+        id: kkey
+        shell: bash
+        run: |
+          # Key the cache on the kernel source commit so a source update auto-invalidates it.
+          # shellcheck disable=SC1090
+          source config/suites/${{ matrix.suite }}.sh
+          sha="$(git ls-remote "${KERNEL_REPO}" "refs/heads/${KERNEL_BRANCH}" | awk 'NR==1{print substr($1,1,12)}')"
+          echo "key=cache/kernel/${{ matrix.suite }}/${sha:-unknown}" >> "$GITHUB_OUTPUT"
+          echo "kernel cache key: cache/kernel/${{ matrix.suite }}/${sha:-unknown}"
+
+      - name: Restore kernel cache (S3)
+        id: kc
+        shell: bash
+        env:
+          S3_HOST: ${{ secrets.S3_HOST }}
+          S3_CLIENT_ID: ${{ secrets.S3_CLIENT_ID }}
+          S3_CLIENT_SECRET: ${{ secrets.S3_CLIENT_SECRET }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          ./scripts/ci-s3.sh get "${{ steps.kkey.outputs.key }}" build
+          if compgen -G "build/linux-image-*.deb" >/dev/null && compgen -G "build/linux-headers-*.deb" >/dev/null; then
+            echo "hit=true" >> "$GITHUB_OUTPUT"; echo "kernel cache HIT — skipping compile"
+          else
+            echo "hit=false" >> "$GITHUB_OUTPUT"; echo "kernel cache MISS — compiling"
+          fi
+
+      - name: Compile kernel
+        if: steps.kc.outputs.hit != 'true'
         shell: bash
         run: sudo ./build.sh --suite=${{ matrix.suite }} --kernel-only
+
+      - name: Save kernel cache (S3)
+        if: steps.kc.outputs.hit != 'true'
+        shell: bash
+        env:
+          S3_HOST: ${{ secrets.S3_HOST }}
+          S3_CLIENT_ID: ${{ secrets.S3_CLIENT_ID }}
+          S3_CLIENT_SECRET: ${{ secrets.S3_CLIENT_SECRET }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: ./scripts/ci-s3.sh put build "${{ steps.kkey.outputs.key }}" 'linux-*.deb'
 
       - name: Upload
         uses: actions/upload-artifact@v4.3.3
@@ -142,6 +181,7 @@ jobs:
             name: linux-rockchip-${{ matrix.suite == 'jammy' && '5.10' || matrix.suite == 'noble' && '6.1' }}
             path: ./build/linux-*.deb
             if-no-files-found: error
+            retention-days: 1
 
   build:
     runs-on: [self-hosted, ARM64, RK1]
@@ -173,12 +213,16 @@ jobs:
         shell: bash
         run: sudo ./build.sh --board=${{ matrix.board }} --suite=${{ matrix.suite }} --flavor=${{ matrix.flavor }}
 
-      - name: Upload
-        uses: actions/upload-artifact@v4.3.3
-        with:
-          name: ubuntu-${{ matrix.suite == 'jammy' && '22.04' || matrix.suite == 'noble' && '24.04' }}-preinstalled-${{ matrix.flavor }}-arm64-${{ matrix.board }}
-          path: ./images/ubuntu-*-preinstalled-${{ matrix.flavor }}-arm64-${{ matrix.board }}.*
-          if-no-files-found: error
+      - name: Publish image to S3
+        shell: bash
+        env:
+          S3_HOST: ${{ secrets.S3_HOST }}
+          S3_CLIENT_ID: ${{ secrets.S3_CLIENT_ID }}
+          S3_CLIENT_SECRET: ${{ secrets.S3_CLIENT_SECRET }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          ver=${{ matrix.suite == 'jammy' && '22.04' || matrix.suite == 'noble' && '24.04' }}
+          ./scripts/ci-s3.sh put images "images/${ver}/${{ matrix.board }}" "ubuntu-*-preinstalled-${{ matrix.flavor }}-arm64-${{ matrix.board }}.*"
 
       - name: Clean cache
         shell: bash

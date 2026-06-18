@@ -28,7 +28,7 @@ RUN printf 'Binary::apt::APT::Keep-Downloaded-Packages "true";\n' \
 # here could omit a build-time dep and cause failures that don't repro on hosted.
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y \
-      sudo curl ca-certificates jq git \
+      sudo curl ca-certificates jq git rclone \
       build-essential gcc-aarch64-linux-gnu bison qemu-user-static qemu-system-arm \
       qemu-efi u-boot-tools binfmt-support debootstrap flex libssl-dev bc rsync kmod \
       cpio xz-utils fakeroot parted udev dosfstools uuid-runtime git-lfs \
