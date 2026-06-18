@@ -36,7 +36,7 @@ jobs:
       kernel_matrix: ${{ steps.gen.outputs.kernel_matrix }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.0
 
       - name: Generate matrices
         id: gen
@@ -101,7 +101,7 @@ jobs:
         matrix: ${{ fromJson(needs.config.outputs.rootfs_matrix) }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.0
 
       - name: Checkout LFS
         shell: bash
@@ -127,7 +127,7 @@ jobs:
         matrix: ${{ fromJson(needs.config.outputs.kernel_matrix) }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.0
 
       - name: Checkout LFS
         shell: bash
@@ -191,7 +191,7 @@ jobs:
       matrix: ${{ fromJson(needs.config.outputs.build_matrix) }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.0
 
       - name: Checkout LFS
         shell: bash

@@ -14,7 +14,7 @@ jobs:
       rootfs_matrix: ${{ steps.rootfs.outputs.rootfs_matrix }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.0
 
       - name: Create build matrix
         id: build
@@ -62,7 +62,7 @@ jobs:
           swap-storage: true
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.0
 
       - name: Set environment variables
         id: vars
@@ -110,7 +110,7 @@ jobs:
           swap-storage: true
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.0
 
       - name: Set environment variables
         id: vars

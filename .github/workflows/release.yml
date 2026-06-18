@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.0
       - name: Create empty release
         id: release
         uses: softprops/action-gh-release@v1
@@ -33,7 +33,7 @@ jobs:
       rootfs_matrix: ${{ steps.rootfs.outputs.rootfs_matrix }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.0
 
       - name: Create build matrix
         id: build
@@ -71,7 +71,7 @@ jobs:
         matrix: ${{ fromJson(needs.config.outputs.rootfs_matrix) }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.0
 
       - name: Set environment variables
         id: vars
@@ -98,7 +98,7 @@ jobs:
         matrix: ${{ fromJson(needs.config.outputs.build_matrix) }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.0
 
       - name: Set environment variables
         id: vars
