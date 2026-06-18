@@ -12,13 +12,17 @@
 #
 # Env overrides:
 #   HARBOR_HOST      Harbor registry host      (default: harbor.local)
-#   HARBOR_PROJECT   Harbor project           (default: rockchip)
+#   HARBOR_PROJECT   Harbor project            (default: rockchip)
 #   IMAGE_NAME       repository name           (default: github-runner)
+#   DOCKERHUB_USER   Docker Hub user/org       (default: gjrtimmer)
 #   RUNNER_VERSION   actions/runner base tag   (default: Dockerfile ARG)
 #   PUSH             set 0 to build only       (default: 1)
+#   PUSH_HARBOR      set 0 to skip Harbor      (default: 1)
+#   PUSH_DOCKERHUB   set 0 to skip Docker Hub  (default: 1)
 #   FORCE_ARCH       set 1 to skip arm64 guard (default: 0)
 #
-# Pushes two tags to <HARBOR_HOST>/<project>/<image> :
+# Pushes two tags to BOTH harbor.local/rockchip/github-runner and
+# docker.io/gjrtimmer/github-runner :
 #   - YYYYMMDD-arm64   dated, arch-suffixed version pin
 #   - arm64            rolling tag the runner DaemonSet pulls
 
@@ -47,27 +51,47 @@ if [[ "${arch}" != "aarch64" && "${arch}" != "arm64" ]]; then
     echo "FORCE_ARCH=1 set — continuing on ${arch} anyway."
 fi
 
-DATE_TAG="$(date +%Y%m%d)-arm64"
-REPO="${HARBOR_HOST}/${HARBOR_PROJECT}/${IMAGE_NAME}"
+DATE_TAG="$(date +%Y%m%d)-arm64"   # dated, arch-suffixed version pin
+ROLLING_TAG="arm64"                # rolling tag the runner DaemonSet pulls
+
+DOCKERHUB_USER="${DOCKERHUB_USER:-gjrtimmer}"
+HARBOR_REPO="${HARBOR_HOST}/${HARBOR_PROJECT}/${IMAGE_NAME}"
+DOCKERHUB_REPO="docker.io/${DOCKERHUB_USER}/${IMAGE_NAME}"
+
+# Target registries (toggle either off).
+repos=()
+[[ "${PUSH_HARBOR:-1}" == "1" ]]    && repos+=("${HARBOR_REPO}")
+[[ "${PUSH_DOCKERHUB:-1}" == "1" ]] && repos+=("${DOCKERHUB_REPO}")
+if [[ ${#repos[@]} -eq 0 ]]; then
+    echo "Error: PUSH_HARBOR and PUSH_DOCKERHUB are both 0 — nothing to do."
+    exit 1
+fi
 
 build_args=()
 [[ -n "${RUNNER_VERSION:-}" ]] && build_args+=(--build-arg "RUNNER_VERSION=${RUNNER_VERSION}")
 
-echo "==> Building ${REPO}"
-echo "    tags: ${DATE_TAG}, arm64"
-docker build "${build_args[@]}" \
-    -t "${REPO}:${DATE_TAG}" \
-    -t "${REPO}:arm64" \
-    "${CONTEXT}"
+# Build once, tag for every target registry (both tags each).
+tag_args=()
+for r in "${repos[@]}"; do
+    tag_args+=(-t "${r}:${DATE_TAG}" -t "${r}:${ROLLING_TAG}")
+done
+
+echo "==> Building (tags: ${DATE_TAG}, ${ROLLING_TAG})"
+for r in "${repos[@]}"; do echo "    ${r}"; done
+docker build "${build_args[@]}" "${tag_args[@]}" "${CONTEXT}"
 
 if [[ "${PUSH:-1}" == "1" ]]; then
-    echo "==> Pushing (run 'docker login ${HARBOR_HOST}' first if needed)"
-    docker push "${REPO}:${DATE_TAG}"
-    docker push "${REPO}:arm64"
+    for r in "${repos[@]}"; do
+        echo "==> Pushing ${r}  (run 'docker login' for its registry first if needed)"
+        docker push "${r}:${DATE_TAG}"
+        docker push "${r}:${ROLLING_TAG}"
+    done
 else
     echo "==> PUSH=0 — skipping push"
 fi
 
 echo "==> Done"
-echo "    ${REPO}:${DATE_TAG}"
-echo "    ${REPO}:arm64"
+for r in "${repos[@]}"; do
+    echo "    ${r}:${DATE_TAG}"
+    echo "    ${r}:${ROLLING_TAG}"
+done
