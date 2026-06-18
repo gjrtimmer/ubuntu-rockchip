@@ -1,0 +1,48 @@
+name: Conventional Commits
+
+# Enforce the Conventional Commits spec on pull request titles. With squash
+# merges the PR title becomes the commit on the default branch, so validating
+# the title keeps the main history conventional.
+# https://www.conventionalcommits.org/
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - edited
+      - reopened
+      - synchronize
+
+permissions:
+  pull-requests: read
+
+jobs:
+  validate:
+    name: Validate PR title
+    runs-on: ubuntu-latest
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # Allowed types per the Conventional Commits spec (+ common extras).
+          types: |
+            feat
+            fix
+            build
+            chore
+            ci
+            docs
+            perf
+            refactor
+            revert
+            style
+            test
+          # Scope is optional; when present it must be lower-case kebab/alnum.
+          requireScope: false
+          # Subject must not start with an upper-case letter and must not end
+          # with a period.
+          subjectPattern: ^(?![A-Z])(?!.*\.$).+$
+          subjectPatternError: |
+            The subject "{subject}" found in the pull request title "{title}"
+            must start with a lower-case letter and must not end with a period.
