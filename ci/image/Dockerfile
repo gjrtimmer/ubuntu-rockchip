@@ -35,8 +35,6 @@ RUN apt-get update \
       device-tree-compiler python2 python3 python-is-python3 fdisk debhelper \
       python3-pyelftools python3-setuptools python3-distutils python3-pkg-resources \
       swig libfdt-dev libpython3-dev dctrl-tools \
-      `# kernel BTF + compression: preinstalled on GitHub-hosted runners, NOT in` \
-      `# the workflow's explicit apt list, so they must be baked in here.` \
       libelf-dev dwarves zstd lz4 \
  && git lfs install --system \
  && rm -rf /var/lib/apt/lists/*
