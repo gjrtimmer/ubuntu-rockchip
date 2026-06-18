@@ -1,3 +1,4 @@
 build/
 images/
 .work/
+.claude/settings.local.json
