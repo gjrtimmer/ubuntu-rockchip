@@ -33,7 +33,7 @@ RUN printf 'Binary::apt::APT::Keep-Downloaded-Packages "true";\n' \
 # workflow assumed.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      ca-certificates curl jq git sudo unzip tar gzip \
+      ca-certificates curl jq git sudo unzip tar gzip libicu70 \
  && apt-get install -y \
       rclone git-lfs \
       build-essential gcc-aarch64-linux-gnu bison qemu-user-static qemu-system-arm \
