@@ -49,7 +49,10 @@ RUN apt-get update \
 # Unprivileged runner user with passwordless sudo: the agent runs as `runner`,
 # jobs escalate via `sudo ./build.sh` (build.sh hard-exits unless uid 0). The pod
 # is privileged so root-in-container then holds the caps loop/mount/chroot/dd need.
-RUN useradd -m -s /bin/bash runner \
+# uid/gid 1001 matches the official actions/runner image, so the persistent
+# _work volume (owned by the previous uid-1001 runner) stays accessible.
+RUN groupadd -g 1001 runner \
+ && useradd -m -u 1001 -g 1001 -s /bin/bash runner \
  && echo 'runner ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/runner \
  && chmod 0440 /etc/sudoers.d/runner
 
