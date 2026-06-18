@@ -13,37 +13,51 @@ unit tests.** The build runs as root on arm64 and is **not runnable on a dev box
 so "verification" means dispatching the CI build and reading its result, not
 running a local test suite.
 
-## Optional skill activation
+## Skill Activation
 
-If these superpowers skills are installed, they help here (skip silently if not):
+Before starting work, activate these (provisioned by `scripts/init-claude.sh`):
+- `/caveman full` — terse output, saves context budget.
 - `superpowers:brainstorming` — when the fix approach is non-obvious.
 - `superpowers:systematic-debugging` — when the root cause is unclear.
 - `superpowers:verification-before-completion` — before marking done.
 
-## Context discipline (MANDATORY)
+## Token Optimization Rules
 
-The main context is the **orchestrator**: it delegates, synthesizes, and decides.
-It does NOT do bulk reading.
+MANDATORY at every phase. The main context is the **orchestrator** — it delegates,
+synthesizes, and decides; it does NOT do bulk reading.
+
+### Never read raw output into main context
 
 | Want to… | Use this | NOT this |
 |----------|----------|----------|
-| Locate code / find root cause | `Agent` subagent, `subagent_type: "Explore"` | Grep + Read in main context |
-| Make 1–2 file surgical edits in parallel | `Agent` subagent, `subagent_type: "general-purpose"` | inline editing of many files |
-| Run verbose `gh`/wiki commands | `Agent` subagent, `subagent_type: "vcs-cli"` | raw JSON in main context |
-| Read a file you are about to Edit | `Read` then `Edit` | a subagent (it can't carry the edit) |
+| Run commands, see results | `ctx_batch_execute` | Bash (unless mutating state) |
+| Search indexed results | `ctx_search` | Re-reading files |
+| Analyze/filter/count data | `ctx_execute` or `ctx_execute_file` | Reading + reasoning in context |
+| Find code semantically | `mcp__semble__search` | Grep + Read |
+| Read file to analyze | `ctx_execute_file` | Read (unless editing) |
+| Read file to edit | Read | `ctx_execute_file` |
 
+### Subagent rules
+
+- **Default model: sonnet** for all subagents; escalate sonnet → opus only when
+  the reasoning genuinely needs it (e.g. sonnet can't pin the root cause).
 - Subagents MUST return **structured findings only** — `file:line` references and
   short summaries, never file contents.
-- Default subagent model: **sonnet**. Escalate to **opus** only when sonnet can't
-  determine root cause or the reasoning is genuinely hard.
-- Each phase produces a compact artifact (summary, plan, result). Only that
-  artifact carries forward; raw investigation stays inside the subagent.
+- `subagent_type: "Explore"` or `"semble-search"` for investigation/code location.
+- `subagent_type: "caveman:cavecrew-builder"` for 1–2 file surgical edits.
+- `subagent_type: "caveman:cavecrew-investigator"` for read-only code location.
+- Delegate verbose `gh`/wiki work to the **`vcs-cli`** agent so raw JSON/CLI
+  output never reaches main context.
+
+### Phase gates
+
+Each phase produces a compact artifact (summary, plan, result). Only that artifact
+carries forward; raw investigation data stays in subagents or `ctx` indexes.
 
 ## Issue communication
 
-**Every phase posts a status comment on the GitHub issue** (`gh issue comment NR
--R gjrtimmer/ubuntu-rockchip --body "…"`). This creates a public audit trail.
-Delegate the actual `gh` calls to the `vcs-cli` agent to keep output compact.
+**Every phase posts a status comment on the GitHub issue** (via `vcs-cli`:
+`gh issue comment NR -R gjrtimmer/ubuntu-rockchip --body "…"`). Public audit trail.
 
 | Phase | Comment content |
 |-------|----------------|
@@ -54,19 +68,22 @@ Delegate the actual `gh` calls to the `vcs-cli` agent to keep output compact.
 | 4 Ship | Full resolution comment (commits, files, root cause, CI evidence) |
 | 5 Upstream | Comment on related open upstream/fork issues (if applicable) |
 
-Failure comments matter just as much — if a phase fails, post what failed and the
-fix approach. Silence on an issue = abandoned work.
+Failure comments matter as much — post what failed and the fix approach. Silence on
+an issue = abandoned work.
 
 ---
 
 ## Phase 0: Triage
 
-Fetch the issue + check for prior work (delegate to `vcs-cli`):
+Fetch the issue + check for prior work with `ctx_batch_execute`:
 
-```bash
-gh issue view NR -R gjrtimmer/ubuntu-rockchip --json number,title,body,labels,comments,assignees
-gh pr list   -R gjrtimmer/ubuntu-rockchip --search "#NR" --state open --json number,url,headRefName
-git branch -a | grep -i "NR"
+```javascript
+commands: [
+  { label: "issue-details",     command: "gh issue view NR -R gjrtimmer/ubuntu-rockchip --json number,title,body,labels,comments,assignees" },
+  { label: "existing-prs",      command: "gh pr list -R gjrtimmer/ubuntu-rockchip --search '#NR' --state open --json number,url,headRefName" },
+  { label: "existing-branches", command: "git branch -a | grep -i 'NR'" }
+]
+queries: ["issue title", "issue body", "labels", "existing PR"]
 ```
 
 **Gate**: If a PR exists or the issue is already fixed → STOP and report. Note any
@@ -74,19 +91,18 @@ upstream (`Joshua-Riek/ubuntu-rockchip`) or fork references for Phase 5.
 
 ## Phase 1: Investigate & Plan
 
-### 1a. Investigation (Explore subagent — sonnet)
+### 1a. Investigation (subagent — sonnet, Explore / semble-search)
 
-Spawn an `Explore` subagent with:
-- The issue title + body (from the Phase 0 artifact).
-- Label/text-derived search areas. Map the symptom to the build layer:
-  - board-specific (one board misbehaves) → `config/boards/<board>.sh` + its hooks
-  - firmware/wifi/bt/audio runtime → `overlay/` + `config_image_hook__<board>`
-  - partitioning / bootloader / dtb / extlinux → `build_image_hook__<board>` + `scripts/build-image.sh`
-  - kernel → `scripts/build-kernel.sh` (pinned `Joshua-Riek/linux-rockchip`)
-  - u-boot → `packages/u-boot-*/` debian overlay + `scripts/build-u-boot.sh`
-  - rootfs / suite-wide → `scripts/build-rootfs.sh`, `config/suites/<suite>.sh`
+Spawn an investigation subagent with the issue title/body (from Phase 0) and
+label/text-derived search areas. Map the symptom to the build layer:
+- board-specific (one board misbehaves) → `config/boards/<board>.sh` + its hooks
+- firmware/wifi/bt/audio runtime → `overlay/` + `config_image_hook__<board>`
+- partitioning / bootloader / dtb / extlinux → `build_image_hook__<board>` + `scripts/build-image.sh`
+- kernel → `scripts/build-kernel.sh` (pinned `Joshua-Riek/linux-rockchip`)
+- u-boot → `packages/u-boot-*/` debian overlay + `scripts/build-u-boot.sh`
+- rootfs / suite-wide → `scripts/build-rootfs.sh`, `config/suites/<suite>.sh`
 
-The subagent returns ONLY:
+The subagent uses `mcp__semble__search` + `ctx` tools internally and returns ONLY:
 ```
 Root cause: <1-2 sentences>
 Files: <path:line list>
@@ -94,14 +110,13 @@ Boards/suites/flavors affected: <list, or "all">
 New behavior needed: <what>
 Risk: <what could break across the matrix>
 ```
-
 If sonnet can't determine the root cause → re-run at **opus**.
 
 ### 1b. Plan & post
 
-Synthesize into a plan and post it on the issue (via `vcs-cli`). The plan covers:
-root cause, files to change, which board/suite/flavor it affects, the CI matrix
-slice you'll verify, and risks.
+Synthesize into a plan and post it on the issue (via `vcs-cli`): root cause, files
+to change, which board/suite/flavor it affects, the CI matrix slice you'll verify,
+and risks.
 
 **Gate**: Ask the user for "go". A "go" approves the presented plan. If execution
 reveals a material scope change → stop and re-confirm.
@@ -123,10 +138,11 @@ Post the "work started" comment on the issue.
 - **Never "fix" the `RELASE_VERSION` / `RELASE_NAME` misspelling** — it's load-bearing.
 - Don't hand-edit committed upstream blobs (`packages/u-boot-*/rkbin/*`); pin via
   the `debian/upstream`/`patches/` overlay instead.
-- Only `Read` files you are about to `Edit`. For independent multi-file edits, use
-  parallel `general-purpose` subagents (sonnet).
-- If you add a board, mirror the structure of an existing `config/boards/*.sh`
-  (metadata + `UBOOT_PACKAGE`/`UBOOT_RULES_TARGET` + `COMPATIBLE_*` + hooks).
+- Only `Read` files you are about to `Edit` (not for analysis — use `ctx`/`semble`).
+- For independent multi-file edits, use parallel `caveman:cavecrew-builder`
+  subagents (sonnet).
+- If you add a board, mirror an existing `config/boards/*.sh` (metadata +
+  `UBOOT_PACKAGE`/`UBOOT_RULES_TARGET` + `COMPATIBLE_*` + hooks).
 
 ## Phase 3: Verify via CI
 
@@ -136,21 +152,20 @@ pipeline for the affected slice and reading the result (delegate to `vcs-cli`):
 ```bash
 gh workflow run build.yml -R gjrtimmer/ubuntu-rockchip \
   -f board=<affected-board> -f suite=<suite> -f flavor=<flavor>
-# poll until completed, then report conclusion + run URL
 gh run list -R gjrtimmer/ubuntu-rockchip --workflow=build.yml --limit 1 \
-  --json databaseId,status,conclusion,headBranch
+  --json databaseId,status,conclusion,headBranch   # poll until completed
 ```
-
-- For a config/script-only change you can reason about, a single representative
+- For a config/script-only change you can reason about, one representative
   board/suite/flavor dispatch is enough; for matrix-wide changes, dispatch the
-  most-affected slice and say so explicitly.
-- On failure: `gh run view <id> --log-failed`, find the failing step, fix, re-dispatch.
-- **Gate**: CI green required before shipping. Never ship on a red or unreviewed run.
+  most-affected slice and say so.
+- On failure: `gh run view <id> --log-failed` (pipe through `ctx`/grep — never dump
+  the whole log), find the failing step, fix, re-dispatch.
+- **Gate**: CI green required before shipping. Never ship on a red/unreviewed run.
 - Post the CI result (conclusion + run URL) on the issue.
 
 > If the change is unverifiable via CI (e.g. needs physical hardware to confirm a
-> wifi/audio fix), say so plainly in the comment and mark it "needs hardware
-> validation" rather than claiming it's verified.
+> wifi/audio fix), say so plainly and mark it "needs hardware validation" rather
+> than claiming it's verified.
 
 ## Phase 4: Commit & Ship
 
@@ -222,14 +237,13 @@ Addressed in the [gjrtimmer/ubuntu-rockchip](https://github.com/gjrtimmer/ubuntu
 UP_EOF
 )"
 ```
-- **Skip closed issues** — do not comment on them.
-- If the fix consolidates work from multiple forks, say so.
+- **Skip closed issues.** If the fix consolidates work from multiple forks, say so.
 
 ## TodoWrite Checklist
 
 Create on invocation:
 1. Triage issue #NR — post triage status on the issue
-2. Investigate root cause (Explore subagent)
+2. Investigate root cause (Explore / semble subagent)
 3. Post implementation plan on the issue, get user approval
 4. Create branch `fix/NR-short-desc` from main + post "work started"
 5. Implement the fix (board hooks / scripts / packages — keep rootfs board-agnostic)

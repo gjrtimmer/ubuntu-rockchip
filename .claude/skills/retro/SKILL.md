@@ -42,20 +42,22 @@ Invoke: **`/retro`** or **`/retro <session-id-prefix>`** (target one session).
 
 ## Skill Version
 
-<!-- retro:version:16 -->
+<!-- retro:version:17 -->
 Track version here. Each self-improvement pass increments this counter and logs
 what changed in the commit message. (v16 = adapted from the source repo to
-ubuntu-rockchip: GitHub-only, native tooling, auto-memory respected, attribution
-trailer kept.)
+ubuntu-rockchip: GitHub-only, repo paths, auto-memory respected, attribution
+trailer kept. v17 = restored the provisioned `ctx`/`semble` tooling for
+transcript analysis.)
 
 ## Tooling note
 
-There is no `ctx`/`semble` here. For transcript analysis, either run a small
-Node/Python scan via **Bash** (raw JSONL stays in the subshell, only the
-structured summary returns), or delegate the scan to a **`general-purpose`
-subagent (sonnet)** that returns only the structured correction list. Only `Read`
-a file you intend to `Edit`. Escalate a subagent to **opus** only if the analysis
-genuinely needs it.
+Provisioned by `scripts/init-claude.sh`:
+- `ctx_execute` / `ctx_execute_file` for all transcript analysis — raw JSONL bytes
+  never enter main context.
+- `ctx_search` for recall of already-indexed findings.
+- `mcp__semble__search` to verify a memory's referenced files/functions still exist.
+- Only `Read` a file you intend to `Edit`. Subagents default to **sonnet**;
+  escalate to **opus** only if the analysis genuinely needs it.
 
 ---
 
@@ -71,7 +73,8 @@ Do NOT batch-scan the whole history by default.
 
 ### 0b. Extract correction signals
 
-Scan the session JSONL (via Bash or a subagent). The scan must:
+Run `ctx_execute` with JavaScript to scan the session JSONL files (raw bytes stay
+out of main context). The scan must:
 1. Read the `.jsonl` files from the project transcript dir (see Paths).
 2. Parse each line; for `type: "user"` entries, extract `message.content[].text`.
 3. Strip IDE/harness context tags (`<ide_*>`, `<system-reminder>`, `<task-notification>`, etc.).
@@ -90,7 +93,7 @@ within 3 turns (thrashing); tasks that took >10 turns (inefficiency).
 
 Read every file in the memory store. For each:
 1. **Staleness** — does it reference files/functions/flags that still exist?
-   Verify with `grep`/Explore. If the referent is gone, mark stale.
+   Verify with `mcp__semble__search`/`grep`. If the referent is gone, mark stale.
 2. **Redundancy** — two memories saying the same thing, or a memory now fully
    covered by a CLAUDE.md rule → flag.
 3. **Accuracy** — does it still match current CLAUDE.md / repo reality?
