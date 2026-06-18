@@ -3,4 +3,10 @@
         "**/build/**": true,
         "**/image/**": true
     },
+    "cSpell.words": [
+        "GH_TOKEN",
+        "rockchip",
+        "ruflo",
+        "semble"
+    ],
 }
