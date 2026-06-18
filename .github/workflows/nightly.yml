@@ -52,7 +52,7 @@ jobs:
         matrix: ${{ fromJson(needs.config.outputs.rootfs_matrix) }}
     steps:
       - name: Get more disk space
-        uses: jlumbroso/free-disk-space@main
+        uses: jlumbroso/free-disk-space@v1.3.1
         with:
           tool-cache: false
           android: true
@@ -100,7 +100,7 @@ jobs:
         matrix: ${{ fromJson(needs.config.outputs.build_matrix) }}
     steps:
       - name: Get more disk space
-        uses: jlumbroso/free-disk-space@main
+        uses: jlumbroso/free-disk-space@v1.3.1
         with:
           tool-cache: false
           android: true
