@@ -13,7 +13,7 @@
 #     rebuild + re-push this image whenever that package list changes. <<<
 #
 # Base is the official multi-arch runner agent (arm64 variant pulled natively).
-ARG RUNNER_VERSION=2.319.1
+ARG RUNNER_VERSION=2.335.1
 FROM ghcr.io/actions/actions-runner:${RUNNER_VERSION}
 
 USER root
