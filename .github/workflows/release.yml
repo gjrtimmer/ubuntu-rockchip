@@ -118,7 +118,7 @@ jobs:
 
       - name: Upload
         if: needs.prepare_release.outputs.release_id != '' 
-        uses: xresloader/upload-to-github-release@v1
+        uses: xresloader/upload-to-github-release@v1.6.2
         env:
             GITHUB_TOKEN:  ${{ secrets.GITHUB_TOKEN }}
         with:
