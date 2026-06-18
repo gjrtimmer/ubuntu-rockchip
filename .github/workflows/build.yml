@@ -2,21 +2,103 @@ name: Build
 
 on:
   workflow_dispatch:
+    inputs:
+      board:
+        description: "Board to build (a single board name, or 'all')"
+        default: all
+        type: string
+      suite:
+        description: "Ubuntu suite"
+        default: all
+        type: choice
+        options:
+          - all
+          - jammy
+          - noble
+      flavor:
+        description: "Flavor"
+        default: all
+        type: choice
+        options:
+          - all
+          - server
+          - desktop
 
 run-name: Build
 
 jobs:
+  config:
+    runs-on: ubuntu-latest
+    name: Create matrix
+    outputs:
+      build_matrix: ${{ steps.gen.outputs.build_matrix }}
+      rootfs_matrix: ${{ steps.gen.outputs.rootfs_matrix }}
+      kernel_matrix: ${{ steps.gen.outputs.kernel_matrix }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Generate matrices
+        id: gen
+        env:
+          IN_BOARD: ${{ inputs.board }}
+          IN_SUITE: ${{ inputs.suite }}
+          IN_FLAVOR: ${{ inputs.flavor }}
+        run: |
+          # build.yml is pinned to the stable suites; the suite input filters within these.
+          SUITES=(jammy noble)
+          FLAVORS=(desktop server)
+
+          want() { [ "$1" = "all" ] || [ "$1" = "$2" ]; }
+
+          build_entries=""
+          declare -A seen_sf seen_s
+          for file in config/boards/*.sh; do
+              board="$(basename "${file%.sh}")"
+              want "${IN_BOARD}" "${board}" || continue
+              COMPATIBLE_SUITES=(); COMPATIBLE_FLAVORS=()
+              # shellcheck disable=SC1090
+              source "${file}"
+              for suite in "${SUITES[@]}"; do
+                  want "${IN_SUITE}" "${suite}" || continue
+                  [[ " ${COMPATIBLE_SUITES[*]} " == *" ${suite} "* ]] || continue
+                  for flavor in "${FLAVORS[@]}"; do
+                      want "${IN_FLAVOR}" "${flavor}" || continue
+                      [[ " ${COMPATIBLE_FLAVORS[*]} " == *" ${flavor} "* ]] || continue
+                      build_entries+="{\"board\":\"${board}\",\"suite\":\"${suite}\",\"flavor\":\"${flavor}\"},"
+                      seen_sf["${suite}|${flavor}"]=1
+                      seen_s["${suite}"]=1
+                  done
+              done
+          done
+
+          if [ -z "${build_entries}" ]; then
+              echo "::error::No board/suite/flavor combination matched (board=${IN_BOARD} suite=${IN_SUITE} flavor=${IN_FLAVOR})."
+              exit 1
+          fi
+
+          # rootfs + kernel are board-agnostic: build only what the selected boards need.
+          rootfs_entries=""
+          for k in "${!seen_sf[@]}"; do
+              rootfs_entries+="{\"suite\":\"${k%%|*}\",\"flavor\":\"${k##*|}\"},"
+          done
+          kernel_entries=""
+          for s in "${!seen_s[@]}"; do
+              kernel_entries+="{\"suite\":\"${s}\"},"
+          done
+
+          {
+              echo "build_matrix={\"include\":[${build_entries%,}]}"
+              echo "rootfs_matrix={\"include\":[${rootfs_entries%,}]}"
+              echo "kernel_matrix={\"include\":[${kernel_entries%,}]}"
+          } >> "$GITHUB_OUTPUT"
+
   rootfs:
     runs-on: [self-hosted, ARM64, RK1]
-    name: Build rootfs 
+    name: Build rootfs
+    needs: [config]
     strategy:
-        matrix:
-          flavor:
-            - desktop
-            - server
-          suite:
-            - jammy
-            - noble
+        matrix: ${{ fromJson(needs.config.outputs.rootfs_matrix) }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -38,12 +120,10 @@ jobs:
 
   kernel:
     runs-on: [self-hosted, ARM64, RK1]
-    name: Build kernel 
+    name: Build kernel
+    needs: [config]
     strategy:
-        matrix:
-          suite:
-            - jammy
-            - noble
+        matrix: ${{ fromJson(needs.config.outputs.kernel_matrix) }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -65,53 +145,10 @@ jobs:
 
   build:
     runs-on: [self-hosted, ARM64, RK1]
-    needs: [rootfs, kernel]
-    name: Build image 
-
+    needs: [config, rootfs, kernel]
+    name: Build image
     strategy:
-      matrix:
-        board:
-          - aio-3588l
-          - armsom-aim7
-          - armsom-sige5
-          - armsom-sige7
-          - armsom-w3
-          - indiedroid-nova
-          - lubancat-4
-          - mixtile-blade3
-          - mixtile-core3588e
-          - nanopc-t6
-          - nanopi-r6c
-          - nanopi-r6s
-          - orangepi-3b
-          - orangepi-5
-          - orangepi-5-max
-          - orangepi-5-plus
-          - orangepi-5-pro
-          - orangepi-5b
-          - orangepi-cm5
-          - radxa-cm5-io
-          - radxa-cm5-rpi-cm4-io
-          - radxa-nx5-io
-          - radxa-zero3
-          - roc-rk3588s-pc
-          - rock-5-itx
-          - rock-5a
-          - rock-5b
-          - rock-5b-plus
-          - rock-5c
-          - rock-5d
-          - turing-rk1
-        flavor:
-          - desktop
-          - server
-        suite:
-          - jammy
-          - noble
-        exclude:
-          - board: armsom-sige5
-            suite: jammy
-
+      matrix: ${{ fromJson(needs.config.outputs.build_matrix) }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
