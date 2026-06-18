@@ -114,17 +114,14 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 5. GH Issues Auto-Fixer — automated issue-to-PR skill
-# https://github.com/openclaw/openclaw (skills/gh-issues)
+# 5. GH Issues Auto-Fixer — issue-to-PR skill
+# This repo ships its own adapted gh-issues skill at .claude/skills/gh-issues
+# (re-targeted to gjrtimmer/ubuntu-rockchip: GitHub-only, CI-dispatch verify,
+# board-hook discipline). Skip the user-level openclaw install so it does not
+# shadow the in-repo, repo-tuned version.
 # ---------------------------------------------------------------------------
 step "GH Issues Auto-Fixer — issue-to-PR automation"
-progress "gh skill install openclaw/openclaw gh-issues"
-if gh skill install openclaw/openclaw gh-issues; then
-    ok "gh-issues skill installed"
-else
-    err "gh skill install failed"
-    progress "Fallback: npx skills add https://github.com/openclaw/openclaw --skill gh-issues"
-fi
+skip "using in-repo .claude/skills/gh-issues (openclaw install skipped to avoid shadowing)"
 
 # ---------------------------------------------------------------------------
 # 6. SuperPowers — agentic skills framework
