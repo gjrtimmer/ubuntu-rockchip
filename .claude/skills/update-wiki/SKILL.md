@@ -56,8 +56,8 @@ When you touch the left, update the right.
 | `.github/ISSUE_TEMPLATE/*` | Contributing |
 | repo structure / new top-level dirs | Repository Layout |
 | `.work/FORKS_RESULT.md` | Fix Clusters · Feature Clusters · Board Support Clusters · Port Roadmap and Priorities |
-| `.work/FORKS.md`, `baseline.md`, `CLAUDE_CONFIGS_REPORT.md` | Fork Analysis Overview · Fork and Upstream Relationship · Upstream Issue Tracking |
-| `.work/ISSUE_MAP.md`, `project_*.json`, `newissues/*` | Issue Tracker and Project Board · Upstream Issue Tracking |
+| `.work/FORKS.md`, `baseline.md`, `CLAUDE_CONFIGS_REPORT.md`, `fork_value_table.md`, `FORKS_REPORT.md`, `findings/*.md` | Fork Analysis Overview · Fork and Upstream Relationship · Upstream Issue Tracking |
+| `.work/ISSUE_MAP.md`, `newissues/*.md` | Issue Tracker and Project Board · Upstream Issue Tracking |
 
 Categories (sidebar order): **Getting Started** · **Build System** · **Configuration Reference** · **CI/CD & Release** · **Project & Contributing** · **Fork Network Analysis**.
 
