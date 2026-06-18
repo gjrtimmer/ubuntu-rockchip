@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "github": {
+      "type": "http",
+      "url": "https://api.githubcopilot.com/mcp/",
+      "headers": {
+        "Authorization": "Bearer ${GH_TOKEN}"
+      }
+    },
+    "semble": {
+      "command": "uvx",
+      "args": ["--from", "semble[mcp]", "semble", "/home/ubuntu/work/ubuntu-rockchip"]
+    },
+    "ruflo": {
+      "command": "/home/ubuntu/.nvm/versions/node/v24.17.0/bin/ruflo",
+      "args": ["mcp", "start"]
+    }
+  }
+}
