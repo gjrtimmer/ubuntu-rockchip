@@ -1,11 +1,11 @@
 name: Pages
-run-name: Deploy download site
+run-name: Pages
 
 on:
   push:
     branches: [main]
     paths:
-      - 'download-site/**'
+      - 'pages/**'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
@@ -32,7 +32,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: download-site
+          path: pages
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4

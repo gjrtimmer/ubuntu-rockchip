@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Assemble download-site manifest.json from per-image part files.
+"""Assemble the manifest.json served by the pages/ download site, from per-image part files.
 
 Each part file (one per board/suite/flavor, emitted by the build job) is a JSON
 object with the keys listed in REQUIRED below. This merges them into a single
