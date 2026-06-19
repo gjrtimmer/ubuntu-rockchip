@@ -1,37 +1,21 @@
 name: Release
-run-name: Release
+run-name: Release ${{ inputs.version }}
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (e.g. 2.4.2) — used for the immutable releases/<version>/ manifest"
+        required: true
+        type: string
 
 permissions:
-    contents: write
+  contents: read
 
 jobs:
-  prepare_release:
-    name: Create release
-    runs-on: ubuntu-latest
-    steps:
-      - name: Reset workspace
-        shell: bash
-        run: sudo rm -rf ./build ./images || true
-
-      - name: Checkout code
-        uses: actions/checkout@v7.0.0
-      - name: Create empty release
-        id: release
-        uses: softprops/action-gh-release@v3.0.0
-        with:
-          tag_name: v2.4.2
-          token: ${{ secrets.GITHUB_TOKEN }}
-          target_commitish: main
-          draft: true
-    outputs:
-      release_id: ${{ steps.release.outputs.id }}
-
   config:
     runs-on: ubuntu-latest
-    name: Create martrix
+    name: Create matrix
     outputs:
       build_matrix: ${{ steps.build.outputs.build_matrix }}
       rootfs_matrix: ${{ steps.rootfs.outputs.rootfs_matrix }}
@@ -76,7 +60,7 @@ jobs:
   rootfs:
     runs-on: [self-hosted, ARM64, RK1]
     name: Build rootfs
-    needs: [prepare_release, config]
+    needs: [config]
     strategy:
         matrix: ${{ fromJson(needs.config.outputs.rootfs_matrix) }}
     steps:
@@ -106,8 +90,8 @@ jobs:
 
   build:
     runs-on: [self-hosted, ARM64, RK1]
-    needs: [rootfs, prepare_release, config]
-    name: Build image 
+    needs: [rootfs, config]
+    name: Build image
     strategy:
         matrix: ${{ fromJson(needs.config.outputs.build_matrix) }}
     steps:
@@ -134,36 +118,34 @@ jobs:
         shell: bash
         run: sudo http_proxy="${{ vars.APT_PROXY }}" https_proxy="${{ vars.APT_PROXY }}" no_proxy="localhost,127.0.0.1,::1,github.com,.github.com,.githubusercontent.com,codeload.github.com" ./build.sh --board=${{ matrix.board }} --suite=${{ matrix.suite }} --flavor=${{ matrix.flavor }} --launchpad
 
-      - name: Upload
-        if: needs.prepare_release.outputs.release_id != '' 
-        uses: xresloader/upload-to-github-release@v1.6.2
+      - name: Publish image to S3 (images/<ver>/<board>)
+        shell: bash
         env:
-            GITHUB_TOKEN:  ${{ secrets.GITHUB_TOKEN }}
-        with:
-          release_id: ${{ needs.prepare_release.outputs.release_id }}
-          file: images/ubuntu-*-preinstalled-*-arm64-${{ matrix.board }}.*
-          draft: true
-          overwrite: true
+          S3_HOST: ${{ secrets.S3_HOST }}
+          S3_CLIENT_ID: ${{ secrets.S3_CLIENT_ID }}
+          S3_CLIENT_SECRET: ${{ secrets.S3_CLIENT_SECRET }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          ver=${{ steps.vars.outputs.suite_version }}
+          ./scripts/ci-s3.sh put images "images/${ver}/${{ matrix.board }}" "ubuntu-*-preinstalled-${{ matrix.flavor }}-arm64-${{ matrix.board }}.*"
 
       - name: Manifest part
-        if: needs.prepare_release.outputs.release_id != ''
         shell: bash
         env:
           M_BOARD: ${{ matrix.board }}
           M_SUITE: ${{ matrix.suite }}
           M_FLAVOR: ${{ matrix.flavor }}
+          VER: ${{ steps.vars.outputs.suite_version }}
         run: |
           source config/boards/${M_BOARD}.sh
-          source config/suites/${M_SUITE}.sh
           img=$(ls images/ubuntu-*-preinstalled-${M_FLAVOR}-arm64-${M_BOARD}.img.xz | head -n1)
           mkdir -p manifest-parts
           out="manifest-parts/${M_BOARD}-${M_SUITE}-${M_FLAVOR}.json"
-          export BOARD_NAME BOARD_SOC BOARD_MAKER RELASE_VERSION
-          python3 -c 'import json,os,sys; img=sys.argv[1]; json.dump({"board":os.environ["M_BOARD"],"board_name":os.environ["BOARD_NAME"],"soc":os.environ["BOARD_SOC"],"maker":os.environ["BOARD_MAKER"],"suite":os.environ["M_SUITE"],"suite_version":os.environ["RELASE_VERSION"],"flavor":os.environ["M_FLAVOR"],"filename":os.path.basename(img),"size":os.path.getsize(img),"sha256":open(img+".sha256").read().split()[0]}, open(sys.argv[2],"w"))' "$img" "$out"
+          export BOARD_NAME BOARD_SOC BOARD_MAKER
+          python3 -c 'import json,os,sys; img=sys.argv[1]; bn=os.path.basename(img); ver=os.environ["VER"]; brd=os.environ["M_BOARD"]; json.dump({"board":brd,"board_name":os.environ["BOARD_NAME"],"soc":os.environ["BOARD_SOC"],"maker":os.environ["BOARD_MAKER"],"suite":os.environ["M_SUITE"],"suite_version":ver,"flavor":os.environ["M_FLAVOR"],"filename":ver+"/"+brd+"/"+bn,"size":os.path.getsize(img),"sha256":open(img+".sha256").read().split()[0]}, open(sys.argv[2],"w"))' "$img" "$out"
           cat "$out"
 
       - name: Upload manifest part
-        if: needs.prepare_release.outputs.release_id != ''
         uses: actions/upload-artifact@v7.0.1
         with:
           name: manifest-part-${{ matrix.board }}-${{ matrix.suite }}-${{ matrix.flavor }}
@@ -175,11 +157,17 @@ jobs:
         run: sync && sudo rm -rf ./images/ ./build/ && sync
 
   manifest:
-    runs-on: ubuntu-latest
-    needs: [build, prepare_release]
-    if: needs.prepare_release.outputs.release_id != ''
+    runs-on: [self-hosted, ARM64, RK1]
+    needs: [build]
     name: Generate manifest
     steps:
+      - name: Reset workspace
+        shell: bash
+        run: sudo rm -rf ./build ./images ./manifest-parts ./manifest.json ./out || true
+
+      - name: Checkout code
+        uses: actions/checkout@v7.0.0
+
       - name: Download manifest parts
         uses: actions/download-artifact@v8.0.1
         with:
@@ -187,28 +175,22 @@ jobs:
           path: manifest-parts
           merge-multiple: true
 
-      - name: Assemble and validate manifest.json
+      - name: Assemble manifest.json
         shell: bash
         run: |
-          tag="v2.4.2"
-          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}/"
-          generated="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          jq -s --arg version "${tag#v}" --arg generated "$generated" --arg base_url "$base" \
-            '{version:$version, generated:$generated, base_url:$base_url, images:.}' \
-            manifest-parts/*.json > manifest.json
-          count=$(jq '.images | length' manifest.json)
-          echo "images in manifest: $count"
-          [ "$count" -gt 0 ] || { echo "ERROR: manifest has no images"; exit 1; }
-          bad=$(jq '[.images[] | select(
-            (has("board") and has("board_name") and has("soc") and has("maker")
-             and has("suite") and has("suite_version") and has("flavor")
-             and has("filename") and has("size") and has("sha256")) | not)] | length' manifest.json)
-          [ "$bad" -eq 0 ] || { echo "ERROR: $bad image entries missing required keys"; exit 1; }
+          python3 scripts/build-manifest.py manifest.json "https://s3.timmertech.nl/rockchip/images/" "${{ inputs.version }}" manifest-parts
+          head -c 800 manifest.json; echo
 
-      - name: Attach manifest and publish release
-        uses: softprops/action-gh-release@v3.0.0
-        with:
-          tag_name: v2.4.2
-          token: ${{ secrets.GITHUB_TOKEN }}
-          draft: false
-          files: manifest.json
+      - name: Publish manifest to S3 (versioned + latest)
+        shell: bash
+        env:
+          S3_HOST: ${{ secrets.S3_HOST }}
+          S3_CLIENT_ID: ${{ secrets.S3_CLIENT_ID }}
+          S3_CLIENT_SECRET: ${{ secrets.S3_CLIENT_SECRET }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          mkdir -p out && cp manifest.json out/
+          # immutable, per-release listing
+          ./scripts/ci-s3.sh put out "releases/${{ inputs.version }}" "manifest.json"
+          # "latest" pointer at bucket root (the download site reads this by default)
+          ./scripts/ci-s3.sh put out "" "manifest.json"

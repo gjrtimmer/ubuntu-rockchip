@@ -1,5 +1,6 @@
-// Production: GitHub's "latest release" redirect. Single seam for an S3 move later.
-const MANIFEST_URL = "https://github.com/gjrtimmer/ubuntu-rockchip/releases/latest/download/manifest.json";
+// Images are published to S3 (MinIO) by the build pipeline; the manifest rides along.
+// Single seam: change this URL (and the build job's base_url) to repoint distribution.
+const MANIFEST_URL = "https://s3.timmertech.nl/rockchip/manifest.json";
 // Local dev (file:// or localhost) loads the committed sample so the page renders without a release.
 const isLocal = !location.hostname || ["localhost", "127.0.0.1"].includes(location.hostname);
 
@@ -112,7 +113,7 @@ function init(manifest) {
 function fail() {
   const s = $("status");
   s.className = "status error";
-  s.innerHTML = `Couldn't load the image list. See the <a href="https://github.com/gjrtimmer/ubuntu-rockchip/releases">GitHub releases page</a>.`;
+  s.innerHTML = `No images available yet, or the image list couldn't be loaded. See the <a href="https://github.com/gjrtimmer/ubuntu-rockchip">project on GitHub</a>.`;
 }
 
 (async () => {

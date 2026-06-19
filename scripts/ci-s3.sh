@@ -45,7 +45,7 @@ case "${verb}" in
     rclone copy "s3:${S3_BUCKET}/${prefix}" "${dest}" --transfers=8 --s3-no-check-bucket || true
     ;;
   put)
-    src="${1:?local src required}"; prefix="${2:?remote prefix required}"; glob="${3:-}"
+    src="${1:?local src required}"; prefix="${2-}"; glob="${3:-}"   # empty prefix => bucket root
     if [ -n "${glob}" ]; then
       # --max-depth 1: match the glob at the top of <src> only; never descend into
       # huge subtrees like build/linux-rockchip (the kernel source, full of symlinks).

@@ -228,7 +228,7 @@ jobs:
         shell: bash
         run: sudo http_proxy="${{ vars.APT_PROXY }}" https_proxy="${{ vars.APT_PROXY }}" no_proxy="localhost,127.0.0.1,::1,github.com,.github.com,.githubusercontent.com,codeload.github.com" ./build.sh --board=${{ matrix.board }} --suite=${{ matrix.suite }} --flavor=${{ matrix.flavor }}
 
-      - name: Publish image to S3
+      - name: Publish image to S3 (dev /build channel)
         shell: bash
         env:
           S3_HOST: ${{ secrets.S3_HOST }}
@@ -237,7 +237,7 @@ jobs:
           S3_BUCKET: ${{ secrets.S3_BUCKET }}
         run: |
           ver=${{ matrix.suite == 'jammy' && '22.04' || matrix.suite == 'noble' && '24.04' }}
-          ./scripts/ci-s3.sh put images "images/${ver}/${{ matrix.board }}" "ubuntu-*-preinstalled-${{ matrix.flavor }}-arm64-${{ matrix.board }}.*"
+          ./scripts/ci-s3.sh put images "build/${ver}/${{ matrix.board }}" "ubuntu-*-preinstalled-${{ matrix.flavor }}-arm64-${{ matrix.board }}.*"
 
       - name: Clean cache
         shell: bash
