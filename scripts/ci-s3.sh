@@ -37,6 +37,12 @@ export RCLONE_CONFIG_S3_FORCE_PATH_STYLE=true
 # 64M keeps well under the 100M cap while minimising request count on fast (1Gbps) links.
 export RCLONE_CONFIG_S3_CHUNK_SIZE=64M
 export RCLONE_CONFIG_S3_UPLOAD_CUTOFF=64M
+# Resilience for the Cloudflare-tunnelled endpoint: ride out transient 502s with backoff,
+# and cap concurrent parts so several simultaneous uploads don't saturate the tunnel.
+export RCLONE_RETRIES=5
+export RCLONE_RETRIES_SLEEP=20s
+export RCLONE_LOW_LEVEL_RETRIES=20
+export RCLONE_CONFIG_S3_UPLOAD_CONCURRENCY=2
 
 verb="${1:?verb required: get|put|prune|cp}"; shift
 
