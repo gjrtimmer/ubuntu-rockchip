@@ -98,7 +98,13 @@ jobs:
         run: |
           d=$(date -u +%Y%m%d)
           base="rootfs/${{ matrix.suite }}/${{ matrix.flavor }}"
-          src=$(ls build/ubuntu-*-preinstalled-${{ matrix.flavor }}-arm64.rootfs.tar.xz | head -n1)
+          src=$(ls build/ubuntu-*-preinstalled-${{ matrix.flavor }}-arm64.rootfs.tar.xz 2>/dev/null | head -n1 || true)
+          # Sanity guard: build.sh can exit 0 even when the rootfs build failed (e.g. an EOL
+          # suite whose archive vanished), leaving no tar or a tiny stub. Never publish that.
+          if [ -z "${src}" ]; then echo "::error::no rootfs tar produced — build failed; not publishing"; exit 1; fi
+          sz=$(stat -c%s "${src}")
+          if [ "${sz}" -lt $((50*1024*1024)) ]; then echo "::error::rootfs ${src} is only ${sz} bytes (<50MB) — stub, not publishing"; exit 1; fi
+          echo "rootfs OK: $((sz/1024/1024)) MiB — ${src}"
           fn=$(basename "$src")
           # 1. write-once dated copy (retention + reproducibility)
           ./scripts/ci-s3.sh put build "${base}/${d}" "ubuntu-*-preinstalled-${{ matrix.flavor }}-arm64.rootfs.tar.xz"
