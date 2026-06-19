@@ -1,8 +1,8 @@
 ## Overview
 
-[![Latest GitHub Release](https://img.shields.io/github/release/Joshua-Riek/ubuntu-rockchip.svg?label=Latest%20Release)](https://github.com/Joshua-Riek/ubuntu-rockchip/releases/latest)
-[![Total GitHub Downloads](https://img.shields.io/github/downloads/Joshua-Riek/ubuntu-rockchip/total.svg?&color=E95420&label=Total%20Downloads)](https://github.com/Joshua-Riek/ubuntu-rockchip/releases)
-[![Nightly GitHub Build](https://github.com/Joshua-Riek/ubuntu-rockchip/actions/workflows/nightly.yml/badge.svg)](https://github.com/Joshua-Riek/ubuntu-rockchip/actions/workflows/nightly.yml)
+[![Latest GitHub Release](https://img.shields.io/github/release/gjrtimmer/ubuntu-rockchip.svg?label=Latest%20Release)](https://github.com/gjrtimmer/ubuntu-rockchip/releases/latest)
+[![Total GitHub Downloads](https://img.shields.io/github/downloads/gjrtimmer/ubuntu-rockchip/total.svg?&color=E95420&label=Total%20Downloads)](https://github.com/gjrtimmer/ubuntu-rockchip/releases)
+[![Nightly GitHub Build](https://github.com/gjrtimmer/ubuntu-rockchip/actions/workflows/nightly.yml/badge.svg)](https://github.com/gjrtimmer/ubuntu-rockchip/actions/workflows/nightly.yml)
 
 Ubuntu Rockchip is a community project porting Ubuntu to Rockchip hardware with the goal of providing a stable and fully functional environment.
 
@@ -21,7 +21,7 @@ Ubuntu Rockchip is a community project porting Ubuntu to Rockchip hardware with 
 
 Make sure you use a good, reliable, and fast SD card. For example, suppose you encounter boot or stability troubles. Most of the time, this is due to either an insufficient power supply or related to your SD card (bad card, bad card reader, something went wrong when burning the image, or the card is too slow).
 
-Download the Ubuntu image for your specific board from the latest [release](https://github.com/Joshua-Riek/ubuntu-rockchip/releases) on GitHub or from the dedicated download [website](https://joshua-riek.github.io/ubuntu-rockchip-download/). Then write the xz compressed image (no previous unpacking necessary) to your SD card using [USBimager](https://bztsrc.gitlab.io/usbimager/) or [balenaEtcher](https://www.balena.io/etcher) since, unlike other tools, these can validate burning results, saving you from corrupted SD card contents.
+Download the Ubuntu image for your specific board from the latest [release](https://github.com/gjrtimmer/ubuntu-rockchip/releases) on GitHub or from the dedicated download [website](https://gjrtimmer.github.io/ubuntu-rockchip/). Then write the xz compressed image (no previous unpacking necessary) to your SD card using [USBimager](https://bztsrc.gitlab.io/usbimager/) or [balenaEtcher](https://www.balena.io/etcher) since, unlike other tools, these can validate burning results, saving you from corrupted SD card contents.
 
 ## Boot the System
 
