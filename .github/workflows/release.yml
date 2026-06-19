@@ -145,6 +145,70 @@ jobs:
           draft: true
           overwrite: true
 
+      - name: Manifest part
+        if: needs.prepare_release.outputs.release_id != ''
+        shell: bash
+        env:
+          M_BOARD: ${{ matrix.board }}
+          M_SUITE: ${{ matrix.suite }}
+          M_FLAVOR: ${{ matrix.flavor }}
+        run: |
+          source config/boards/${M_BOARD}.sh
+          source config/suites/${M_SUITE}.sh
+          img=$(ls images/ubuntu-*-preinstalled-${M_FLAVOR}-arm64-${M_BOARD}.img.xz | head -n1)
+          mkdir -p manifest-parts
+          out="manifest-parts/${M_BOARD}-${M_SUITE}-${M_FLAVOR}.json"
+          export BOARD_NAME BOARD_SOC BOARD_MAKER RELASE_VERSION
+          python3 -c 'import json,os,sys; img=sys.argv[1]; json.dump({"board":os.environ["M_BOARD"],"board_name":os.environ["BOARD_NAME"],"soc":os.environ["BOARD_SOC"],"maker":os.environ["BOARD_MAKER"],"suite":os.environ["M_SUITE"],"suite_version":os.environ["RELASE_VERSION"],"flavor":os.environ["M_FLAVOR"],"filename":os.path.basename(img),"size":os.path.getsize(img),"sha256":open(img+".sha256").read().split()[0]}, open(sys.argv[2],"w"))' "$img" "$out"
+          cat "$out"
+
+      - name: Upload manifest part
+        if: needs.prepare_release.outputs.release_id != ''
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: manifest-part-${{ matrix.board }}-${{ matrix.suite }}-${{ matrix.flavor }}
+          path: manifest-parts/*.json
+          if-no-files-found: error
+
       - name: Clean cache
         shell: bash
         run: sync && sudo rm -rf ./images/ ./build/ && sync
+
+  manifest:
+    runs-on: ubuntu-latest
+    needs: [build, prepare_release]
+    if: needs.prepare_release.outputs.release_id != ''
+    name: Generate manifest
+    steps:
+      - name: Download manifest parts
+        uses: actions/download-artifact@v8.0.1
+        with:
+          pattern: manifest-part-*
+          path: manifest-parts
+          merge-multiple: true
+
+      - name: Assemble and validate manifest.json
+        shell: bash
+        run: |
+          tag="v2.4.2"
+          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}/"
+          generated="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          jq -s --arg version "${tag#v}" --arg generated "$generated" --arg base_url "$base" \
+            '{version:$version, generated:$generated, base_url:$base_url, images:.}' \
+            manifest-parts/*.json > manifest.json
+          count=$(jq '.images | length' manifest.json)
+          echo "images in manifest: $count"
+          [ "$count" -gt 0 ] || { echo "ERROR: manifest has no images"; exit 1; }
+          bad=$(jq '[.images[] | select(
+            (has("board") and has("board_name") and has("soc") and has("maker")
+             and has("suite") and has("suite_version") and has("flavor")
+             and has("filename") and has("size") and has("sha256")) | not)] | length' manifest.json)
+          [ "$bad" -eq 0 ] || { echo "ERROR: $bad image entries missing required keys"; exit 1; }
+
+      - name: Attach manifest and publish release
+        uses: softprops/action-gh-release@v3.0.0
+        with:
+          tag_name: v2.4.2
+          token: ${{ secrets.GITHUB_TOKEN }}
+          draft: false
+          files: manifest.json
