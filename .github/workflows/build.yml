@@ -257,21 +257,3 @@ jobs:
       - name: Clean cache
         shell: bash
         run: sync && sudo rm -rf ./images/ ./build/ && sync
-
-  cleanup:
-    runs-on: [self-hosted, ARM64, RK1]
-    needs: [build]
-    if: always()
-    name: Prune old S3 handoffs
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v7.0.0
-
-      - name: Prune ci/ handoffs older than 7 days
-        shell: bash
-        env:
-          S3_HOST: ${{ secrets.S3_HOST }}
-          S3_CLIENT_ID: ${{ secrets.S3_CLIENT_ID }}
-          S3_CLIENT_SECRET: ${{ secrets.S3_CLIENT_SECRET }}
-          S3_BUCKET: ${{ secrets.S3_BUCKET }}
-        run: ./scripts/ci-s3.sh prune ci 7d

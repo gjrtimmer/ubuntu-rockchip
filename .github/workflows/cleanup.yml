@@ -1,0 +1,32 @@
+name: Cleanup
+run-name: Prune S3 CI handoffs
+
+# Dedicated scheduled cleanup of the S3 CI-handoff prefix (ci/<run_id>/), instead of
+# bolting a cleanup job onto every build pipeline. Runs daily and prunes anything older
+# than max_age, so the prefix self-cleans even during quiet periods.
+on:
+  schedule:
+    - cron: "30 3 * * *"
+  workflow_dispatch:
+    inputs:
+      max_age:
+        description: "Delete ci/ handoff objects older than this (rclone duration, e.g. 7d)"
+        default: "7d"
+        type: string
+
+jobs:
+  prune:
+    runs-on: [self-hosted, ARM64, RK1]
+    name: Prune ci/ handoffs
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7.0.0
+
+      - name: Prune ci/ handoffs
+        shell: bash
+        env:
+          S3_HOST: ${{ secrets.S3_HOST }}
+          S3_CLIENT_ID: ${{ secrets.S3_CLIENT_ID }}
+          S3_CLIENT_SECRET: ${{ secrets.S3_CLIENT_SECRET }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: ./scripts/ci-s3.sh prune ci "${{ inputs.max_age || '7d' }}"
