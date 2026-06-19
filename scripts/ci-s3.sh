@@ -2,7 +2,8 @@
 # S3/MinIO helper for CI: build-cache restore/save + image publishing, via rclone.
 #
 # Reads repo Actions secrets from the environment:
-#   S3_HOST           bare host, no scheme (e.g. minio.example.com) — scheme is added
+#   S3_HOST           host with optional scheme; bare host => https. Use http:// for an
+#                     in-cluster plaintext endpoint, e.g. http://minio.storage.svc:9000
 #   S3_CLIENT_ID      access key
 #   S3_CLIENT_SECRET  secret key
 #   S3_BUCKET         target bucket (must already exist)
@@ -23,14 +24,20 @@ set -euo pipefail
 : "${S3_CLIENT_SECRET:?S3_CLIENT_SECRET required}"
 : "${S3_BUCKET:?S3_BUCKET required}"
 
-# Normalise to a bare host, then force https.
-host="${S3_HOST#http://}"; host="${host#https://}"; host="${host%/}"
+# Honor an explicit scheme in S3_HOST: http:// for in-cluster plaintext
+# (e.g. http://minio.storage.svc:9000), https for a bare host.
+case "${S3_HOST}" in
+  http://*)  scheme=http;  host="${S3_HOST#http://}";;
+  https://*) scheme=https; host="${S3_HOST#https://}";;
+  *)         scheme=https; host="${S3_HOST}";;
+esac
+host="${host%/}"
 
 export RCLONE_CONFIG_S3_TYPE=s3
 export RCLONE_CONFIG_S3_PROVIDER=Minio
 export RCLONE_CONFIG_S3_ACCESS_KEY_ID="${S3_CLIENT_ID}"
 export RCLONE_CONFIG_S3_SECRET_ACCESS_KEY="${S3_CLIENT_SECRET}"
-export RCLONE_CONFIG_S3_ENDPOINT="https://${host}"
+export RCLONE_CONFIG_S3_ENDPOINT="${scheme}://${host}"
 export RCLONE_CONFIG_S3_REGION="${S3_REGION:-eu-west-1}"
 export RCLONE_CONFIG_S3_FORCE_PATH_STYLE=true
 # Cloudflare-tunnel safe: every multipart part is a separate request body < 100M.
