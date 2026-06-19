@@ -40,9 +40,10 @@ cd "${tmp_dir}" || exit 1
 git clone https://github.com/Joshua-Riek/livecd-rootfs
 cd livecd-rootfs || exit 1
 
-# Install build deps
-apt-get update
-apt-get build-dep . -y
+# Install build deps (bounded retries + timeout so a stalled apt-cacher-ng / tunnel fetch
+# fails fast instead of hanging the runner indefinitely, as a noble build did for ~77min)
+apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
+apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 build-dep . -y
 
 # Build the package
 dpkg-buildpackage -us -uc
@@ -138,8 +139,16 @@ fi
 
 # Build the rootfs
 lb build
+lb_rc=$?
 
-set -eE 
+set -eE
+
+# Fail loud if live-build failed or produced no chroot (e.g. an EOL suite whose archive is
+# gone) — otherwise the tar below would ship an empty/stub rootfs with a 0 exit code.
+if [ "${lb_rc}" -ne 0 ] || [ ! -d chroot ] || [ -z "$(ls -A chroot 2>/dev/null)" ]; then
+    echo "ERROR: live-build failed (rc=${lb_rc}) or produced no chroot for ${SUITE}/${FLAVOR}" >&2
+    exit 1
+fi
 
 # Tar the entire rootfs
 (cd chroot/ &&  tar -p -c --sort=name --xattrs ./*) | xz -3 -T0 > "ubuntu-${RELASE_VERSION}-preinstalled-${FLAVOR}-arm64.rootfs.tar.xz"
