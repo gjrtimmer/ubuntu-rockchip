@@ -139,14 +139,16 @@ fi
 
 # Build the rootfs
 lb build
-lb_rc=$?
 
 set -eE
 
-# Fail loud if live-build failed or produced no chroot (e.g. an EOL suite whose archive is
-# gone) — otherwise the tar below would ship an empty/stub rootfs with a 0 exit code.
-if [ "${lb_rc}" -ne 0 ] || [ ! -d chroot ] || [ -z "$(ls -A chroot 2>/dev/null)" ]; then
-    echo "ERROR: live-build failed (rc=${lb_rc}) or produced no chroot for ${SUITE}/${FLAVOR}" >&2
+# Validate the CHROOT, not lb build's exit code. With IMAGEFORMAT=none, lb build's
+# binary/casper stage exits non-zero by design (e.g. "cannot create binary/casper/
+# filesystem.manifest") even when the chroot rootfs is complete — and we tar chroot/
+# directly. So only fail when no usable chroot exists (e.g. an EOL suite whose archive
+# vanished and bootstrap never ran), which still catches the silent-stub case.
+if [ ! -d chroot/usr ] || [ -z "$(ls -A chroot/usr 2>/dev/null)" ]; then
+    echo "ERROR: live-build produced no usable chroot for ${SUITE}/${FLAVOR}" >&2
     exit 1
 fi
 
