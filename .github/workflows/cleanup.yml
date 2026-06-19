@@ -22,11 +22,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7.0.0
 
-      - name: Prune ci/ handoffs
+      - name: Prune ci/ handoffs and dated rootfs
         shell: bash
         env:
           S3_HOST: ${{ secrets.S3_HOST }}
           S3_CLIENT_ID: ${{ secrets.S3_CLIENT_ID }}
           S3_CLIENT_SECRET: ${{ secrets.S3_CLIENT_SECRET }}
           S3_BUCKET: ${{ secrets.S3_BUCKET }}
-        run: ./scripts/ci-s3.sh prune ci "${{ inputs.max_age || '7d' }}"
+        run: |
+          age="${{ inputs.max_age || '7d' }}"
+          ./scripts/ci-s3.sh prune ci "${age}"
+          # dated rootfs copies; latest.tar.xz is rewritten daily so it stays fresh and is kept
+          ./scripts/ci-s3.sh prune rootfs "${age}"

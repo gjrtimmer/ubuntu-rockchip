@@ -1,0 +1,91 @@
+name: RootFS
+run-name: RootFS
+
+# Builds the board-agnostic rootfs once per suite/flavor and publishes it to S3 for
+# every other pipeline to consume — instead of each pipeline rebuilding its own.
+# Overwrite-free: each build is written to an immutable dated path, then a tiny
+# `current` pointer is flipped last, so a pipeline mid-fetch never reads a half-written
+# object and we never clobber a file that another job is downloading.
+on:
+  schedule:
+    - cron: "0 1 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rootfs
+  cancel-in-progress: false
+
+jobs:
+  config:
+    runs-on: ubuntu-latest
+    name: Create matrix
+    outputs:
+      matrix: ${{ steps.gen.outputs.matrix }}
+    steps:
+      - name: Reset workspace
+        shell: bash
+        run: sudo rm -rf ./build ./images || true
+
+      - name: Checkout code
+        uses: actions/checkout@v7.0.0
+
+      - name: Generate matrix
+        id: gen
+        run: |
+          # All suites x flavors — the rootfs is board-agnostic, so this serves every
+          # board and every pipeline (and makes re-adding jammy a matrix change elsewhere).
+          entries=""
+          for s in config/suites/*.sh; do
+              suite="$(basename "${s%.sh}")"
+              for f in config/flavors/*.sh; do
+                  flavor="$(basename "${f%.sh}")"
+                  entries+="{\"suite\":\"${suite}\",\"flavor\":\"${flavor}\"},"
+              done
+          done
+          echo "matrix={\"include\":[${entries%,}]}" >> "$GITHUB_OUTPUT"
+
+  rootfs:
+    runs-on: [self-hosted, ARM64, RK1]
+    needs: [config]
+    name: Build rootfs
+    strategy:
+        fail-fast: false
+        matrix: ${{ fromJson(needs.config.outputs.matrix) }}
+    steps:
+      - name: Reset workspace
+        shell: bash
+        run: sudo rm -rf ./build ./images || true
+
+      - name: Checkout code
+        uses: actions/checkout@v7.0.0
+
+      - name: Checkout LFS
+        shell: bash
+        run: git lfs fetch && git lfs checkout
+
+      - name: Build
+        shell: bash
+        run: sudo http_proxy="${{ vars.APT_PROXY }}" https_proxy="${{ vars.APT_PROXY }}" no_proxy="localhost,127.0.0.1,::1,github.com,.github.com,.githubusercontent.com,codeload.github.com" ./build.sh --suite=${{ matrix.suite }} --flavor=${{ matrix.flavor }} --rootfs-only
+
+      - name: Publish rootfs to S3 (dated + pointer)
+        shell: bash
+        env:
+          S3_HOST: ${{ secrets.S3_HOST }}
+          S3_CLIENT_ID: ${{ secrets.S3_CLIENT_ID }}
+          S3_CLIENT_SECRET: ${{ secrets.S3_CLIENT_SECRET }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          d=$(date -u +%Y%m%d)
+          base="rootfs/${{ matrix.suite }}/${{ matrix.flavor }}"
+          src=$(ls build/ubuntu-*-preinstalled-${{ matrix.flavor }}-arm64.rootfs.tar.xz | head -n1)
+          fn=$(basename "$src")
+          # 1. write-once dated copy (retention + reproducibility)
+          ./scripts/ci-s3.sh put build "${base}/${d}" "ubuntu-*-preinstalled-${{ matrix.flavor }}-arm64.rootfs.tar.xz"
+          # 2. publish latest.tar.xz via a server-side copy from the dated object — atomic
+          #    replace, so a pipeline fetching latest.tar.xz never sees a partial file and we
+          #    never overwrite the object that is currently being uploaded.
+          ./scripts/ci-s3.sh cp "${base}/${d}/${fn}" "${base}/latest.tar.xz"
+          echo "published ${base}/${d}/${fn} -> ${base}/latest.tar.xz"

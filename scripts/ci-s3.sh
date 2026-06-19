@@ -15,6 +15,7 @@
 #   ci-s3.sh get <remote-prefix> <local-dest-dir>     # cache restore (tolerant: miss = no-op)
 #   ci-s3.sh put <local-src> <remote-prefix> [glob]   # cache save / publish (fails loud)
 #   ci-s3.sh prune <remote-prefix> <max-age>          # delete objects older than max-age (e.g. 7d)
+#   ci-s3.sh cp <remote-src> <remote-dst>             # server-side copy within the bucket (atomic dst replace)
 set -euo pipefail
 
 : "${S3_HOST:?S3_HOST required}"
@@ -37,7 +38,7 @@ export RCLONE_CONFIG_S3_FORCE_PATH_STYLE=true
 export RCLONE_CONFIG_S3_CHUNK_SIZE=64M
 export RCLONE_CONFIG_S3_UPLOAD_CUTOFF=64M
 
-verb="${1:?verb required: get|put|prune}"; shift
+verb="${1:?verb required: get|put|prune|cp}"; shift
 
 case "${verb}" in
   get)
@@ -62,8 +63,13 @@ case "${verb}" in
     rclone delete "s3:${S3_BUCKET}/${prefix}" --min-age "${age}" --s3-no-check-bucket || true
     rclone rmdirs "s3:${S3_BUCKET}/${prefix}" --leave-root --s3-no-check-bucket || true
     ;;
+  cp)
+    src="${1:?remote src required}"; dst="${2:?remote dst required}"
+    # server-side copy within the bucket; dst is replaced atomically (single PUT)
+    rclone copyto "s3:${S3_BUCKET}/${src}" "s3:${S3_BUCKET}/${dst}" --s3-no-check-bucket
+    ;;
   *)
-    echo "ci-s3.sh: unknown verb '${verb}' (expected get|put|prune)" >&2
+    echo "ci-s3.sh: unknown verb '${verb}' (expected get|put|prune|cp)" >&2
     exit 1
     ;;
 esac
