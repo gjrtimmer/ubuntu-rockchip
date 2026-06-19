@@ -81,12 +81,16 @@ jobs:
         shell: bash
         run: sudo http_proxy="${{ vars.APT_PROXY }}" https_proxy="${{ vars.APT_PROXY }}" no_proxy="localhost,127.0.0.1,::1,github.com,.github.com,.githubusercontent.com,codeload.github.com" ./build.sh --suite=${{ matrix.suite }} --flavor=${{ matrix.flavor }} --rootfs-only --launchpad
 
-      - name: Upload
-        uses: actions/upload-artifact@v7.0.1
-        with:
-            name: ubuntu-${{ steps.vars.outputs.suite_version }}-preinstalled-${{ matrix.flavor }}-arm64-rootfs
-            path: ./build/ubuntu-${{ steps.vars.outputs.suite_version }}-preinstalled-${{ matrix.flavor }}-arm64.rootfs.tar.xz
-            if-no-files-found: error
+      - name: Publish rootfs to S3 (CI handoff)
+        shell: bash
+        env:
+          S3_HOST: ${{ secrets.S3_HOST }}
+          S3_CLIENT_ID: ${{ secrets.S3_CLIENT_ID }}
+          S3_CLIENT_SECRET: ${{ secrets.S3_CLIENT_SECRET }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          ver=${{ steps.vars.outputs.suite_version }}
+          ./scripts/ci-s3.sh put build "ci/${{ github.run_id }}/rootfs/${ver}-${{ matrix.flavor }}" "ubuntu-*-preinstalled-${{ matrix.flavor }}-arm64.rootfs.tar.xz"
 
   build:
     runs-on: [self-hosted, ARM64, RK1]
@@ -108,11 +112,17 @@ jobs:
           source config/suites/${{ matrix.suite }}.sh
           echo "suite_version=$RELASE_VERSION" >> $GITHUB_OUTPUT
 
-      - name: Checkout rootfs
-        uses: actions/download-artifact@v8.0.1
-        with:
-            name: ubuntu-${{ steps.vars.outputs.suite_version }}-preinstalled-${{ matrix.flavor }}-arm64-rootfs
-            path: ./build/
+      - name: Fetch rootfs from S3 (CI handoff)
+        shell: bash
+        env:
+          S3_HOST: ${{ secrets.S3_HOST }}
+          S3_CLIENT_ID: ${{ secrets.S3_CLIENT_ID }}
+          S3_CLIENT_SECRET: ${{ secrets.S3_CLIENT_SECRET }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          ver=${{ steps.vars.outputs.suite_version }}
+          ./scripts/ci-s3.sh get "ci/${{ github.run_id }}/rootfs/${ver}-${{ matrix.flavor }}" build
+          compgen -G "build/ubuntu-*-preinstalled-${{ matrix.flavor }}-arm64.rootfs.tar.xz" >/dev/null || { echo "ERROR: rootfs handoff missing from S3"; exit 1; }
 
       - name: Build
         shell: bash

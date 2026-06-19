@@ -8,7 +8,7 @@
 #   S3_BUCKET         target bucket (must already exist)
 #   S3_REGION         optional, default eu-west-1 (MinIO ignores it)
 #
-# MinIO needs path-style addressing. Multipart chunk is capped at 10M so no single
+# MinIO needs path-style addressing. Multipart chunk is capped at 64M so no single
 # HTTP request body exceeds Cloudflare's 100M tunnel limit (no direct-IP needed).
 #
 # Usage:
@@ -32,8 +32,9 @@ export RCLONE_CONFIG_S3_ENDPOINT="https://${host}"
 export RCLONE_CONFIG_S3_REGION="${S3_REGION:-eu-west-1}"
 export RCLONE_CONFIG_S3_FORCE_PATH_STYLE=true
 # Cloudflare-tunnel safe: every multipart part is a separate request body < 100M.
-export RCLONE_CONFIG_S3_CHUNK_SIZE=10M
-export RCLONE_CONFIG_S3_UPLOAD_CUTOFF=10M
+# 64M keeps well under the 100M cap while minimising request count on fast (1Gbps) links.
+export RCLONE_CONFIG_S3_CHUNK_SIZE=64M
+export RCLONE_CONFIG_S3_UPLOAD_CUTOFF=64M
 
 verb="${1:?verb required: get|put}"; shift
 
