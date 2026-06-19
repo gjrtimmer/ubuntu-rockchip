@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ubuntu Rockchip — Downloads</title>
+  <meta name="description" content="Download Ubuntu disk images for Rockchip ARM single-board computers.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap">
+      <h1><span class="dot"></span> Ubuntu&nbsp;Rockchip</h1>
+      <p class="tagline">Bootable Ubuntu images for Rockchip ARM single-board computers</p>
+      <p class="release-line" id="release-line" hidden>
+        Latest release <strong id="release-version">—</strong>
+        <span id="release-generated" class="muted"></span>
+      </p>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="controls" id="controls" hidden>
+      <input type="search" id="search" placeholder="Search board, SoC, maker…" autocomplete="off" aria-label="Search">
+      <select id="filter-maker" aria-label="Filter by maker"><option value="">All makers</option></select>
+      <select id="filter-soc" aria-label="Filter by SoC"><option value="">All SoCs</option></select>
+      <select id="filter-suite" aria-label="Filter by Ubuntu release"><option value="">All releases</option></select>
+    </section>
+
+    <p id="status" class="status">Loading available images…</p>
+
+    <div id="boards" class="boards"></div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <p>Maintained fork of <a href="https://github.com/Joshua-Riek/ubuntu-rockchip">Joshua-Riek/ubuntu-rockchip</a>.
+      Source &amp; issues: <a href="https://github.com/gjrtimmer/ubuntu-rockchip">gjrtimmer/ubuntu-rockchip</a>.</p>
+      <p class="muted">Verify your download with the listed SHA-256 before flashing.</p>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

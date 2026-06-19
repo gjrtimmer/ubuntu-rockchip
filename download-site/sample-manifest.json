@@ -1,0 +1,23 @@
+{
+  "version": "2.4.2",
+  "generated": "2026-06-18T00:00:00Z",
+  "base_url": "https://github.com/gjrtimmer/ubuntu-rockchip/releases/download/v2.4.2/",
+  "images": [
+    { "board": "orangepi-5-plus", "board_name": "Orange Pi 5 Plus", "soc": "Rockchip RK3588", "maker": "Xunlong",
+      "suite": "noble", "suite_version": "24.04", "flavor": "server",
+      "filename": "ubuntu-24.04-preinstalled-server-arm64-orangepi-5-plus.img.xz", "size": 1402160284,
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000" },
+    { "board": "orangepi-5-plus", "board_name": "Orange Pi 5 Plus", "soc": "Rockchip RK3588", "maker": "Xunlong",
+      "suite": "noble", "suite_version": "24.04", "flavor": "desktop",
+      "filename": "ubuntu-24.04-preinstalled-desktop-arm64-orangepi-5-plus.img.xz", "size": 2913456120,
+      "sha256": "1111111111111111111111111111111111111111111111111111111111111111" },
+    { "board": "rock-5b", "board_name": "Radxa ROCK 5B", "soc": "Rockchip RK3588", "maker": "Radxa",
+      "suite": "noble", "suite_version": "24.04", "flavor": "server",
+      "filename": "ubuntu-24.04-preinstalled-server-arm64-rock-5b.img.xz", "size": 1399123456,
+      "sha256": "2222222222222222222222222222222222222222222222222222222222222222" },
+    { "board": "turing-rk1", "board_name": "Turing RK1", "soc": "Rockchip RK3588", "maker": "Turing Machines",
+      "suite": "jammy", "suite_version": "22.04", "flavor": "server",
+      "filename": "ubuntu-22.04-preinstalled-server-arm64-turing-rk1.img.xz", "size": 1340012345,
+      "sha256": "3333333333333333333333333333333333333333333333333333333333333333" }
+  ]
+}
