@@ -7,7 +7,7 @@
 #   S3_CLIENT_ID      access key
 #   S3_CLIENT_SECRET  secret key
 #   S3_BUCKET         target bucket (must already exist)
-#   S3_REGION         optional, default eu-west-1 (MinIO ignores it)
+#   S3_REGION         optional, default ca-central-1 (the CA MinIO enforces region in SigV4)
 #
 # MinIO needs path-style addressing. Multipart chunk is capped at 64M so no single
 # HTTP request body exceeds Cloudflare's 100M tunnel limit (no direct-IP needed).
@@ -38,7 +38,7 @@ export RCLONE_CONFIG_S3_PROVIDER=Minio
 export RCLONE_CONFIG_S3_ACCESS_KEY_ID="${S3_CLIENT_ID}"
 export RCLONE_CONFIG_S3_SECRET_ACCESS_KEY="${S3_CLIENT_SECRET}"
 export RCLONE_CONFIG_S3_ENDPOINT="${scheme}://${host}"
-export RCLONE_CONFIG_S3_REGION="${S3_REGION:-eu-west-1}"
+export RCLONE_CONFIG_S3_REGION="${S3_REGION:-ca-central-1}"
 export RCLONE_CONFIG_S3_FORCE_PATH_STYLE=true
 # Cloudflare-tunnel safe: every multipart part is a separate request body < 100M.
 # 64M keeps well under the 100M cap while minimising request count on fast (1Gbps) links.
