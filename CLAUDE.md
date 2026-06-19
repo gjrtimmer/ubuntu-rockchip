@@ -6,8 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This repo builds bootable **Ubuntu** disk images for **Rockchip ARM SoC** single-board computers and dev boards
 (RK3588 / RK3588S / RK3588S2 / RK3576 / RK3566 …). It is a maintained fork of `Joshua-Riek/ubuntu-rockchip`.
-It currently supports **31 boards** (`config/boards/*.sh`), **4 Ubuntu suites** (jammy 22.04, noble 24.04,
-oracular 24.10, plucky 25.04), and **2 flavors** (server, desktop). Output is a per-board `*.img.xz` (+ `.sha256`).
+It currently supports **31 boards** (`config/boards/*.sh`), **2 LTS Ubuntu suites** (jammy 22.04, noble 24.04),
+and **2 flavors** (server, desktop). Output is a per-board `*.img.xz` (+ `.sha256`). Interim (non-LTS) suites are
+intentionally not built — they EOL in 9 months and their archives vanish from `ports.ubuntu.com`, breaking builds.
 
 It is **not** an application codebase — there is no compiled app and no unit tests. Almost everything is Bash
 plus declarative shell-config files and Debian packaging.
@@ -95,8 +96,8 @@ a board's `config_image_hook__` must explicitly `cp` them in and enable the serv
 
 - `build.yml` — manual (`workflow_dispatch`); the reference pipeline. **Dispatch this to verify a change**
   (`gh workflow run build.yml`).
-- `next.yml`, `nightly.yml`, `release.yml` — generate their board/suite/flavor matrix dynamically by sourcing
-  every `config/*` file, so they self-trim to whatever configs exist. They use `--launchpad` for speed.
+- `nightly.yml`, `release.yml` — generate their board/suite/flavor matrix dynamically by sourcing
+  every `config/*` file, so they self-trim to whatever configs exist (`release.yml` uses `--launchpad`).
 - `conventional-commits.yml` — validates that every PR **title** follows Conventional Commits (squash merges
   turn the PR title into the commit on `main`). Allowed types: `feat fix build chore ci docs perf refactor
   revert style test`.

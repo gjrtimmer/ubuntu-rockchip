@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       suite:
-        description: "Suite to build ('all', or e.g. plucky)"
+        description: "Suite to build ('all', or e.g. noble)"
         default: all
         type: string
       flavor:

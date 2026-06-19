@@ -42,7 +42,6 @@ body:
       options:
         - Ubuntu 22.04 LTS (Jammy Jellyfish)
         - Ubuntu 24.04 LTS (Noble Nombat)
-        - Ubuntu 24.10 (Oracular Oriole)
     validations:
       required: true
   - type: textarea

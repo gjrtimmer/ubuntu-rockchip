@@ -6,7 +6,7 @@ export BOARD_SOC="Rockchip RK3588"
 export BOARD_CPU="ARM Cortex A76 / A55"
 export UBOOT_PACKAGE="u-boot-turing-rk3588"
 export UBOOT_RULES_TARGET="turing-rk1-rk3588"
-export COMPATIBLE_SUITES=("jammy" "noble" "oracular" "plucky")
+export COMPATIBLE_SUITES=("jammy" "noble")
 export COMPATIBLE_FLAVORS=("server" "desktop")
 
 function config_image_hook__turing-rk1() {
@@ -28,8 +28,6 @@ function config_image_hook__turing-rk1() {
 
         # The RK1 uses UART9 for console output
         sed -i 's/console=ttyS2,1500000/console=ttyS9,115200/g' "${rootfs}/etc/kernel/cmdline"
-    elif [ "${suite}" == "oracular" ]; then
-        sed -i 's/console=ttyS2,1500000/console=ttyS0,115200/g' "${rootfs}/etc/kernel/cmdline"
     fi
 
     return 0
