@@ -71,6 +71,7 @@ jobs:
     name: Build rootfs
     strategy:
         fail-fast: false
+        max-parallel: 2
         matrix: ${{ fromJson(needs.config.outputs.matrix) }}
     steps:
       - name: Reset workspace
