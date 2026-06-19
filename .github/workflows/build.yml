@@ -118,18 +118,6 @@ jobs:
         shell: bash
         run: sudo http_proxy="${{ vars.APT_PROXY }}" https_proxy="${{ vars.APT_PROXY }}" no_proxy="localhost,127.0.0.1,::1,github.com,.github.com,.githubusercontent.com,codeload.github.com" ./build.sh --suite=${{ matrix.suite }} --flavor=${{ matrix.flavor }} --rootfs-only
 
-      - name: Verify apt proxy (acng stats)
-        if: vars.APT_PROXY != ''
-        shell: bash
-        run: |
-          host=$(echo "${{ vars.APT_PROXY }}" | sed -E 's#https?://##; s#:[0-9].*##')
-          echo "proxy host: $host"
-          getent hosts "$host" || echo "WARN: runner pod cannot resolve $host (cluster DNS)"
-          echo "--- acng report ---"
-          curl -fsS --max-time 10 "${{ vars.APT_PROXY }}/acng-report.html" \
-            | sed -e 's/<[^>]*>//g' | grep -iE 'request|hit|miss|byte' | head -20 \
-            || echo "WARN: acng report not reachable from runner"
-
       - name: Upload
         uses: actions/upload-artifact@v7.0.1
         with:
