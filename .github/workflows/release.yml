@@ -12,6 +12,10 @@ jobs:
     name: Create release
     runs-on: ubuntu-latest
     steps:
+      - name: Reset workspace
+        shell: bash
+        run: sudo rm -rf ./build ./images || true
+
       - name: Checkout code
         uses: actions/checkout@v7.0.0
       - name: Create empty release
@@ -32,6 +36,10 @@ jobs:
       build_matrix: ${{ steps.build.outputs.build_matrix }}
       rootfs_matrix: ${{ steps.rootfs.outputs.rootfs_matrix }}
     steps:
+      - name: Reset workspace
+        shell: bash
+        run: sudo rm -rf ./build ./images || true
+
       - name: Checkout code
         uses: actions/checkout@v7.0.0
 
@@ -72,6 +80,10 @@ jobs:
     strategy:
         matrix: ${{ fromJson(needs.config.outputs.rootfs_matrix) }}
     steps:
+      - name: Reset workspace
+        shell: bash
+        run: sudo rm -rf ./build ./images || true
+
       - name: Checkout code
         uses: actions/checkout@v7.0.0
 
@@ -99,6 +111,10 @@ jobs:
     strategy:
         matrix: ${{ fromJson(needs.config.outputs.build_matrix) }}
     steps:
+      - name: Reset workspace
+        shell: bash
+        run: sudo rm -rf ./build ./images || true
+
       - name: Checkout code
         uses: actions/checkout@v7.0.0
 

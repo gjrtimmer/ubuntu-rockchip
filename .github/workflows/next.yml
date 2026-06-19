@@ -17,6 +17,10 @@ jobs:
           suite:
             - oracular
     steps:
+      - name: Reset workspace
+        shell: bash
+        run: sudo rm -rf ./build ./images || true
+
       - name: Checkout code
         uses: actions/checkout@v7.0.0
 
@@ -43,6 +47,10 @@ jobs:
           suite:
             - oracular
     steps:
+      - name: Reset workspace
+        shell: bash
+        run: sudo rm -rf ./build ./images || true
+
       - name: Checkout code
         uses: actions/checkout@v7.0.0
 
@@ -67,6 +75,10 @@ jobs:
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
+      - name: Reset workspace
+        shell: bash
+        run: sudo rm -rf ./build ./images || true
+
       - name: Checkout code
         uses: actions/checkout@v7.0.0
 
@@ -97,6 +109,10 @@ jobs:
     strategy:
         matrix: ${{fromJson(needs.prep.outputs.matrix)}}
     steps:
+      - name: Reset workspace
+        shell: bash
+        run: sudo rm -rf ./build ./images || true
+
       - name: Checkout code
         uses: actions/checkout@v7.0.0
 

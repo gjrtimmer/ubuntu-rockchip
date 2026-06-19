@@ -34,6 +34,10 @@ jobs:
       rootfs_matrix: ${{ steps.gen.outputs.rootfs_matrix }}
       kernel_matrix: ${{ steps.gen.outputs.kernel_matrix }}
     steps:
+      - name: Reset workspace
+        shell: bash
+        run: sudo rm -rf ./build ./images || true
+
       - name: Checkout code
         uses: actions/checkout@v7.0.0
 
@@ -99,6 +103,10 @@ jobs:
     strategy:
         matrix: ${{ fromJson(needs.config.outputs.rootfs_matrix) }}
     steps:
+      - name: Reset workspace
+        shell: bash
+        run: sudo rm -rf ./build ./images || true
+
       - name: Checkout code
         uses: actions/checkout@v7.0.0
 
@@ -125,6 +133,10 @@ jobs:
     strategy:
         matrix: ${{ fromJson(needs.config.outputs.kernel_matrix) }}
     steps:
+      - name: Reset workspace
+        shell: bash
+        run: sudo rm -rf ./build ./images || true
+
       - name: Checkout code
         uses: actions/checkout@v7.0.0
 
@@ -189,6 +201,10 @@ jobs:
     strategy:
       matrix: ${{ fromJson(needs.config.outputs.build_matrix) }}
     steps:
+      - name: Reset workspace
+        shell: bash
+        run: sudo rm -rf ./build ./images || true
+
       - name: Checkout code
         uses: actions/checkout@v7.0.0
 
