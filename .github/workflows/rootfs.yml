@@ -10,6 +10,15 @@ on:
   schedule:
     - cron: "0 1 * * *"
   workflow_dispatch:
+    inputs:
+      suite:
+        description: "Suite to build ('all', or e.g. plucky)"
+        default: all
+        type: string
+      flavor:
+        description: "Flavor ('all', server, desktop)"
+        default: all
+        type: string
 
 permissions:
   contents: read
@@ -34,17 +43,26 @@ jobs:
 
       - name: Generate matrix
         id: gen
+        env:
+          IN_SUITE: ${{ inputs.suite }}
+          IN_FLAVOR: ${{ inputs.flavor }}
         run: |
-          # All suites x flavors — the rootfs is board-agnostic, so this serves every
-          # board and every pipeline (and makes re-adding jammy a matrix change elsewhere).
+          # All suites x flavors by default (the rootfs is board-agnostic, so it serves
+          # every board and pipeline). workflow_dispatch can narrow to one suite/flavor
+          # (e.g. to re-publish a single leg after a transient upload failure).
+          # Empty input (cron) or 'all' => no filtering.
+          want() { [ -z "$1" ] || [ "$1" = "all" ] || [ "$1" = "$2" ]; }
           entries=""
           for s in config/suites/*.sh; do
               suite="$(basename "${s%.sh}")"
+              want "${IN_SUITE}" "${suite}" || continue
               for f in config/flavors/*.sh; do
                   flavor="$(basename "${f%.sh}")"
+                  want "${IN_FLAVOR}" "${flavor}" || continue
                   entries+="{\"suite\":\"${suite}\",\"flavor\":\"${flavor}\"},"
               done
           done
+          [ -n "${entries}" ] || { echo "::error::no suite/flavor matched (suite=${IN_SUITE} flavor=${IN_FLAVOR})"; exit 1; }
           echo "matrix={\"include\":[${entries%,}]}" >> "$GITHUB_OUTPUT"
 
   rootfs:
