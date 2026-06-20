@@ -128,6 +128,9 @@ overlay_dir=../overlay
 rm -rf ${chroot_dir} && mkdir -p ${chroot_dir}
 rootfs_tar=$(find . -maxdepth 1 -name "ubuntu-*-preinstalled-${FLAVOR}-arm64.rootfs.tar.xz" | sort | tail -n1)
 [ -n "${rootfs_tar}" ] || { echo "Error: rootfs tar not found for flavor=${FLAVOR}"; exit 1; }
+# Extract YYYYMM from filename: ubuntu-VERSION-YYYYMM-preinstalled-...; fall back to current month
+rootfs_month=$(basename "${rootfs_tar}" | cut -d- -f3)
+[[ "${rootfs_month}" =~ ^[0-9]{6}$ ]] || rootfs_month=$(date -u +%Y%m)
 tar -xpJf "${rootfs_tar}" -C ${chroot_dir}
 
 # Mount the root filesystem
@@ -171,6 +174,6 @@ chroot ${chroot_dir} apt-get -y autoremove
 teardown_mountpoint $chroot_dir
 
 # Compress the root filesystem and then build a disk image
-cd ${chroot_dir} && tar -cpf "../ubuntu-${RELASE_VERSION}-preinstalled-${FLAVOR}-arm64-${BOARD}.rootfs.tar" . && cd .. && rm -rf ${chroot_dir}
-../scripts/build-image.sh "ubuntu-${RELASE_VERSION}-preinstalled-${FLAVOR}-arm64-${BOARD}.rootfs.tar"
-rm -f "ubuntu-${RELASE_VERSION}-preinstalled-${FLAVOR}-arm64-${BOARD}.rootfs.tar"
+cd ${chroot_dir} && tar -cpf "../ubuntu-${RELASE_VERSION}-${rootfs_month}-preinstalled-${FLAVOR}-arm64-${BOARD}.rootfs.tar" . && cd .. && rm -rf ${chroot_dir}
+../scripts/build-image.sh "ubuntu-${RELASE_VERSION}-${rootfs_month}-preinstalled-${FLAVOR}-arm64-${BOARD}.rootfs.tar"
+rm -f "ubuntu-${RELASE_VERSION}-${rootfs_month}-preinstalled-${FLAVOR}-arm64-${BOARD}.rootfs.tar"
