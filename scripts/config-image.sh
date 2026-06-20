@@ -126,7 +126,9 @@ overlay_dir=../overlay
 
 # Extract the compressed root filesystem
 rm -rf ${chroot_dir} && mkdir -p ${chroot_dir}
-tar -xpJf "ubuntu-${RELASE_VERSION}-preinstalled-${FLAVOR}-arm64.rootfs.tar.xz" -C ${chroot_dir}
+rootfs_tar=$(find . -maxdepth 1 -name "ubuntu-*-preinstalled-${FLAVOR}-arm64.rootfs.tar.xz" | sort | tail -n1)
+[ -n "${rootfs_tar}" ] || { echo "Error: rootfs tar not found for flavor=${FLAVOR}"; exit 1; }
+tar -xpJf "${rootfs_tar}" -C ${chroot_dir}
 
 # Mount the root filesystem
 setup_mountpoint $chroot_dir
