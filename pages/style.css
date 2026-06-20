@@ -74,6 +74,15 @@ a{color:var(--orange)}
 .sha{display:block;font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--muted);word-break:break-all;margin-top:2px;cursor:pointer}
 .sha:hover{color:var(--ink)}
 
+/* Sponsor banner */
+.sponsor-banner{background:linear-gradient(135deg,#fff5ec,#fdeafe);border-bottom:1px solid var(--line)}
+.sponsor-banner .wrap{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-top:12px;padding-bottom:12px;flex-wrap:wrap}
+.sponsor-text{margin:0;display:flex;align-items:center;gap:10px;font-size:14px;color:var(--ink);line-height:1.45}
+.sponsor-emoji{font-size:22px;line-height:1;flex:none}
+.sponsor-btn{flex:none;background:#ffdd00;color:#111;text-decoration:none;font-weight:600;border-radius:8px;padding:9px 16px;font-size:14px;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.18);transition:filter .15s,transform .15s}
+.sponsor-btn:hover{filter:brightness(1.04);transform:translateY(-1px)}
+.sponsor-footnote{margin:8px 0 0}
+
 /* Footer */
 .site-footer{border-top:1px solid var(--line);padding:24px 0 40px;font-size:14px;color:var(--muted)}
 
@@ -81,4 +90,6 @@ a{color:var(--orange)}
   .boards{grid-template-columns:1fr}
   .info-grid{grid-template-columns:1fr}
   .tab-btn{padding:12px 14px;font-size:14px}
+  .sponsor-banner .wrap{flex-direction:column;align-items:flex-start}
+  .sponsor-btn{align-self:stretch;text-align:center}
 }
