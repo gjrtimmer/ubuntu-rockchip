@@ -145,7 +145,10 @@ jobs:
       - name: Build
         if: steps.rfc.outputs.hit != 'true'
         shell: bash
-        run: sudo http_proxy="${{ vars.APT_PROXY }}" https_proxy="${{ vars.APT_PROXY }}" no_proxy="localhost,127.0.0.1,::1,github.com,.github.com,.githubusercontent.com,codeload.github.com" ./build.sh --suite=${{ matrix.suite }} --flavor=${{ matrix.flavor }} --rootfs-only
+        run: |
+          source scripts/lib/retry.sh
+          APT_PROXY="${{ vars.APT_PROXY }}"
+          with_apt_proxy ./build.sh --suite=${{ matrix.suite }} --flavor=${{ matrix.flavor }} --rootfs-only
 
       - name: Save rootfs cache (S3)
         if: steps.rfc.outputs.hit != 'true'
@@ -380,7 +383,10 @@ jobs:
 
       - name: Build
         shell: bash
-        run: sudo http_proxy="${{ vars.APT_PROXY }}" https_proxy="${{ vars.APT_PROXY }}" no_proxy="localhost,127.0.0.1,::1,github.com,.github.com,.githubusercontent.com,codeload.github.com" ./build.sh --board=${{ matrix.board }} --suite=${{ matrix.suite }} --flavor=${{ matrix.flavor }}
+        run: |
+          source scripts/lib/retry.sh
+          APT_PROXY="${{ vars.APT_PROXY }}"
+          with_apt_proxy ./build.sh --board=${{ matrix.board }} --suite=${{ matrix.suite }} --flavor=${{ matrix.flavor }}
 
       - name: Publish image to S3 (images/<ver>/<board>)
         shell: bash

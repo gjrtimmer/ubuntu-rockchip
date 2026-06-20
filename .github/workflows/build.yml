@@ -345,7 +345,10 @@ jobs:
 
       - name: Build
         shell: bash
-        run: sudo http_proxy="${{ vars.APT_PROXY }}" https_proxy="${{ vars.APT_PROXY }}" no_proxy="localhost,127.0.0.1,::1,github.com,.github.com,.githubusercontent.com,codeload.github.com" ./build.sh --board=${{ matrix.board }} --suite=${{ matrix.suite }} --flavor=${{ matrix.flavor }}
+        run: |
+          source scripts/lib/retry.sh
+          APT_PROXY="${{ vars.APT_PROXY }}"
+          with_apt_proxy ./build.sh --board=${{ matrix.board }} --suite=${{ matrix.suite }} --flavor=${{ matrix.flavor }}
 
       - name: Publish image to S3 (dev /build channel)
         shell: bash

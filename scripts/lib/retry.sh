@@ -48,3 +48,20 @@ git_ls_remote_sha() {
 git_lfs_retry() {
     git lfs fetch && git lfs checkout || (sleep 10 && git lfs fetch && git lfs checkout)
 }
+
+# with_apt_proxy <command> [args...]
+# Verifies APT_PROXY is reachable (3 s timeout); clears it if not so the
+# command falls back to a direct connection instead of failing immediately.
+# APT_PROXY must be exported by the caller before invoking this function.
+with_apt_proxy() {
+    if [ -n "${APT_PROXY:-}" ]; then
+        local _h _p
+        _h=$(echo "${APT_PROXY}" | sed 's|.*://||;s|[:/].*||')
+        _p=$(echo "${APT_PROXY}" | sed 's|.*://[^:]*:||;s|/.*||')
+        timeout 3 bash -c ">/dev/tcp/${_h}/${_p}" 2>/dev/null \
+            || { echo "APT proxy ${APT_PROXY} unreachable — building without proxy"; APT_PROXY=""; }
+    fi
+    sudo http_proxy="${APT_PROXY:-}" https_proxy="${APT_PROXY:-}" \
+        no_proxy="localhost,127.0.0.1,::1,github.com,.github.com,.githubusercontent.com,codeload.github.com" \
+        "$@"
+}
