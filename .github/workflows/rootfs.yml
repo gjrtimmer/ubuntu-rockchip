@@ -83,16 +83,15 @@ jobs:
 
       - name: Checkout LFS
         shell: bash
-        run: git lfs fetch && git lfs checkout || (sleep 10 && git lfs fetch && git lfs checkout)
+        run: |
+          source scripts/lib/retry.sh
+          git_lfs_retry
 
       - name: Resolve rootfs cache key
         id: rfkey
         run: |
-          for attempt in 1 2 3; do
-            livecd_sha=$(git ls-remote "https://github.com/Joshua-Riek/livecd-rootfs" HEAD 2>/dev/null | awk 'NR==1{print substr($1,1,12)}')
-            [ -n "${livecd_sha}" ] && break
-            [ "${attempt}" -lt 3 ] && sleep 15
-          done
+          source scripts/lib/retry.sh
+          livecd_sha=$(git_ls_remote_sha "https://github.com/Joshua-Riek/livecd-rootfs" "HEAD")
           content_sha=$(cat config/suites/${{ matrix.suite }}.sh config/flavors/${{ matrix.flavor }}.sh scripts/build-rootfs.sh | sha256sum | cut -c1-12)
           month=$(date -u +%Y%m)
           echo "key=cache/rootfs/${{ matrix.suite }}/${{ matrix.flavor }}/${month}/${livecd_sha:-unknown}-${content_sha}" >> "$GITHUB_OUTPUT"

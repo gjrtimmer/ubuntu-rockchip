@@ -128,7 +128,9 @@ jobs:
 
       - name: Checkout LFS
         shell: bash
-        run: git lfs fetch && git lfs checkout || (sleep 10 && git lfs fetch && git lfs checkout)
+        run: |
+          source scripts/lib/retry.sh
+          git_lfs_retry
 
       - name: Resolve kernel cache key
         id: kkey
@@ -137,11 +139,8 @@ jobs:
           # Key the cache on the kernel source commit so a source update auto-invalidates it.
           # shellcheck disable=SC1090
           source config/suites/${{ matrix.suite }}.sh
-          for attempt in 1 2 3; do
-            sha=$(git ls-remote "${KERNEL_REPO}" "refs/heads/${KERNEL_BRANCH}" 2>/dev/null | awk 'NR==1{print substr($1,1,12)}')
-            [ -n "${sha}" ] && break
-            [ "${attempt}" -lt 3 ] && sleep 15
-          done
+          source scripts/lib/retry.sh
+          sha=$(git_ls_remote_sha "${KERNEL_REPO}" "refs/heads/${KERNEL_BRANCH}")
           echo "key=cache/kernel/${{ matrix.suite }}/${sha:-unknown}" >> "$GITHUB_OUTPUT"
           echo "kernel cache key: cache/kernel/${{ matrix.suite }}/${sha:-unknown}"
 
@@ -201,7 +200,9 @@ jobs:
 
       - name: Checkout LFS
         shell: bash
-        run: git lfs fetch && git lfs checkout || (sleep 10 && git lfs fetch && git lfs checkout)
+        run: |
+          source scripts/lib/retry.sh
+          git_lfs_retry
 
       - name: Resolve u-boot cache key
         id: ubkey
@@ -268,16 +269,15 @@ jobs:
 
       - name: Checkout LFS
         shell: bash
-        run: git lfs fetch && git lfs checkout || (sleep 10 && git lfs fetch && git lfs checkout)
+        run: |
+          source scripts/lib/retry.sh
+          git_lfs_retry
 
       - name: Resolve rootfs cache key
         id: rfkey
         run: |
-          for attempt in 1 2 3; do
-            livecd_sha=$(git ls-remote "https://github.com/Joshua-Riek/livecd-rootfs" HEAD 2>/dev/null | awk 'NR==1{print substr($1,1,12)}')
-            [ -n "${livecd_sha}" ] && break
-            [ "${attempt}" -lt 3 ] && sleep 15
-          done
+          source scripts/lib/retry.sh
+          livecd_sha=$(git_ls_remote_sha "https://github.com/Joshua-Riek/livecd-rootfs" "HEAD")
           content_sha=$(cat config/suites/${{ matrix.suite }}.sh config/flavors/${{ matrix.flavor }}.sh scripts/build-rootfs.sh | sha256sum | cut -c1-12)
           month=$(date -u +%Y%m)
           echo "key=cache/rootfs/${{ matrix.suite }}/${{ matrix.flavor }}/${month}/${livecd_sha:-unknown}-${content_sha}" >> "$GITHUB_OUTPUT"
