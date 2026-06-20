@@ -102,12 +102,16 @@ jobs:
 
       - name: Checkout LFS
         shell: bash
-        run: git lfs fetch && git lfs checkout
+        run: git lfs fetch && git lfs checkout || (sleep 10 && git lfs fetch && git lfs checkout)
 
       - name: Resolve rootfs cache key
         id: rfkey
         run: |
-          livecd_sha=$(git ls-remote "https://github.com/Joshua-Riek/livecd-rootfs" HEAD 2>/dev/null | awk 'NR==1{print substr($1,1,12)}' || true)
+          for attempt in 1 2 3; do
+            livecd_sha=$(git ls-remote "https://github.com/Joshua-Riek/livecd-rootfs" HEAD 2>/dev/null | awk 'NR==1{print substr($1,1,12)}')
+            [ -n "${livecd_sha}" ] && break
+            [ "${attempt}" -lt 3 ] && sleep 15
+          done
           content_sha=$(cat config/suites/${{ matrix.suite }}.sh config/flavors/${{ matrix.flavor }}.sh scripts/build-rootfs.sh | sha256sum | cut -c1-12)
           month=$(date -u +%Y%m)
           echo "key=cache/rootfs/${{ matrix.suite }}/${{ matrix.flavor }}/${month}/${livecd_sha:-unknown}-${content_sha}" >> "$GITHUB_OUTPUT"
@@ -172,7 +176,7 @@ jobs:
 
       - name: Checkout LFS
         shell: bash
-        run: git lfs fetch && git lfs checkout
+        run: git lfs fetch && git lfs checkout || (sleep 10 && git lfs fetch && git lfs checkout)
 
       - name: Resolve kernel cache key
         id: kkey
@@ -181,7 +185,11 @@ jobs:
           # Key the cache on the kernel source commit so a source update auto-invalidates it.
           # shellcheck disable=SC1090
           source config/suites/${{ matrix.suite }}.sh
-          sha="$(git ls-remote "${KERNEL_REPO}" "refs/heads/${KERNEL_BRANCH}" 2>/dev/null | awk 'NR==1{print substr($1,1,12)}' || true)"
+          for attempt in 1 2 3; do
+            sha=$(git ls-remote "${KERNEL_REPO}" "refs/heads/${KERNEL_BRANCH}" 2>/dev/null | awk 'NR==1{print substr($1,1,12)}')
+            [ -n "${sha}" ] && break
+            [ "${attempt}" -lt 3 ] && sleep 15
+          done
           echo "key=cache/kernel/${{ matrix.suite }}/${sha:-unknown}" >> "$GITHUB_OUTPUT"
           echo "kernel cache key: cache/kernel/${{ matrix.suite }}/${sha:-unknown}"
 
@@ -241,7 +249,7 @@ jobs:
 
       - name: Checkout LFS
         shell: bash
-        run: git lfs fetch && git lfs checkout
+        run: git lfs fetch && git lfs checkout || (sleep 10 && git lfs fetch && git lfs checkout)
 
       - name: Resolve u-boot cache key
         id: ubkey
@@ -308,7 +316,7 @@ jobs:
 
       - name: Checkout LFS
         shell: bash
-        run: git lfs fetch && git lfs checkout
+        run: git lfs fetch && git lfs checkout || (sleep 10 && git lfs fetch && git lfs checkout)
 
       - name: Fetch rootfs from S3 (CI handoff)
         shell: bash

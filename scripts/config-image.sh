@@ -136,6 +136,9 @@ tar -xpJf "${rootfs_tar}" -C ${chroot_dir}
 # Mount the root filesystem
 setup_mountpoint $chroot_dir
 
+# Set apt retry policy for ALL chroot apt calls (update, upgrade, board hooks, launchpad installs)
+printf 'Acquire::Retries "3";\nAcquire::http::Timeout "60";\n' > "${chroot_dir}/etc/apt/apt.conf.d/99-ci-retries"
+
 # Update packages
 chroot $chroot_dir apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=60 update
 chroot $chroot_dir apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=60 -y upgrade
@@ -147,7 +150,7 @@ fi
 
 # Download and install U-Boot
 if [[ ${LAUNCHPAD} == "Y" ]]; then
-    chroot ${chroot_dir} apt-get -y install "u-boot-${BOARD}"
+    chroot ${chroot_dir} apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=60 -y install "u-boot-${BOARD}"
 else
     cp "${uboot_package}" ${chroot_dir}/tmp/
     chroot ${chroot_dir} dpkg -i "/tmp/${uboot_package}"

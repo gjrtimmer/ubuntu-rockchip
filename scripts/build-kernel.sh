@@ -20,8 +20,14 @@ fi
 source "../config/suites/${SUITE}.sh"
 
 # Clone the kernel repo
-if ! git -C linux-rockchip pull; then
-    git clone --progress -b "${KERNEL_BRANCH}" "${KERNEL_REPO}" linux-rockchip --depth=2
+if ! git -C linux-rockchip pull 2>/dev/null; then
+    for attempt in 1 2 3; do
+        rm -rf linux-rockchip
+        git clone --progress -b "${KERNEL_BRANCH}" "${KERNEL_REPO}" linux-rockchip --depth=2 && break
+        [ "${attempt}" -lt 3 ] || { echo "Error: git clone failed after 3 attempts"; exit 1; }
+        echo "git clone attempt ${attempt}/3 failed — retrying in 15s"
+        sleep 15
+    done
 fi
 
 cd linux-rockchip
