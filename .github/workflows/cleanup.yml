@@ -10,8 +10,8 @@ on:
   workflow_dispatch:
     inputs:
       max_age:
-        description: "Delete ci/ handoff objects older than this (rclone duration, e.g. 14d)"
-        default: "14d"
+        description: "Delete ci/ handoff objects older than this (rclone duration, e.g. 90d)"
+        default: "90d"
         type: string
 
 jobs:
@@ -36,5 +36,5 @@ jobs:
         run: |
           age="${{ inputs.max_age || '14d' }}"
           ./scripts/ci-s3.sh prune ci "${age}"
-          # dated rootfs copies; latest.tar.xz is rewritten daily so it stays fresh and is kept
-          ./scripts/ci-s3.sh prune rootfs "${age}"
+          # dated rootfs copies kept 3 months; latest.tar.xz is rewritten monthly so it stays fresh
+          ./scripts/ci-s3.sh prune rootfs 90d
