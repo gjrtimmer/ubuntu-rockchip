@@ -271,9 +271,9 @@ jobs:
         run: |
           livecd_sha=$(git ls-remote "https://github.com/Joshua-Riek/livecd-rootfs" HEAD | awk 'NR==1{print substr($1,1,12)}')
           content_sha=$(cat config/suites/${{ matrix.suite }}.sh config/flavors/${{ matrix.flavor }}.sh scripts/build-rootfs.sh | sha256sum | cut -c1-12)
-          week=$(date -u +%Y-W%V)
-          echo "key=cache/rootfs/${{ matrix.suite }}/${{ matrix.flavor }}/${week}/${livecd_sha:-unknown}-${content_sha}" >> "$GITHUB_OUTPUT"
-          echo "rootfs cache key: cache/rootfs/${{ matrix.suite }}/${{ matrix.flavor }}/${week}/${livecd_sha:-unknown}-${content_sha}"
+          month=$(date -u +%Y%m)
+          echo "key=cache/rootfs/${{ matrix.suite }}/${{ matrix.flavor }}/${month}/${livecd_sha:-unknown}-${content_sha}" >> "$GITHUB_OUTPUT"
+          echo "rootfs cache key: cache/rootfs/${{ matrix.suite }}/${{ matrix.flavor }}/${month}/${livecd_sha:-unknown}-${content_sha}"
 
       - name: Fetch rootfs (cache → latest.tar.xz fallback)
         shell: bash
@@ -291,7 +291,8 @@ jobs:
             echo "rootfs cache MISS — fetching latest.tar.xz"
             ./scripts/ci-s3.sh get "rootfs/${{ matrix.suite }}/${{ matrix.flavor }}/latest.tar.xz" build
             [ -f build/latest.tar.xz ] || { echo "ERROR: rootfs not in cache or at rootfs/${{ matrix.suite }}/${{ matrix.flavor }}/latest.tar.xz — run the RootFS pipeline first"; exit 1; }
-            mv build/latest.tar.xz "build/ubuntu-${ver}-preinstalled-${{ matrix.flavor }}-arm64.rootfs.tar.xz"
+            month=$(date -u +%Y%m)
+            mv build/latest.tar.xz "build/ubuntu-${ver}-${month}-preinstalled-${{ matrix.flavor }}-arm64.rootfs.tar.xz"
           fi
 
       - name: Fetch kernel from S3 (CI handoff)

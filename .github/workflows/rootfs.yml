@@ -8,7 +8,7 @@ run-name: RootFS
 # object and we never clobber a file that another job is downloading.
 on:
   schedule:
-    - cron: "0 1 * * 0"
+    - cron: "0 1 1 * *"
   workflow_dispatch:
     inputs:
       suite:
@@ -90,9 +90,9 @@ jobs:
         run: |
           livecd_sha=$(git ls-remote "https://github.com/Joshua-Riek/livecd-rootfs" HEAD | awk 'NR==1{print substr($1,1,12)}')
           content_sha=$(cat config/suites/${{ matrix.suite }}.sh config/flavors/${{ matrix.flavor }}.sh scripts/build-rootfs.sh | sha256sum | cut -c1-12)
-          week=$(date -u +%Y-W%V)
-          echo "key=cache/rootfs/${{ matrix.suite }}/${{ matrix.flavor }}/${week}/${livecd_sha:-unknown}-${content_sha}" >> "$GITHUB_OUTPUT"
-          echo "rootfs cache key: cache/rootfs/${{ matrix.suite }}/${{ matrix.flavor }}/${week}/${livecd_sha:-unknown}-${content_sha}"
+          month=$(date -u +%Y%m)
+          echo "key=cache/rootfs/${{ matrix.suite }}/${{ matrix.flavor }}/${month}/${livecd_sha:-unknown}-${content_sha}" >> "$GITHUB_OUTPUT"
+          echo "rootfs cache key: cache/rootfs/${{ matrix.suite }}/${{ matrix.flavor }}/${month}/${livecd_sha:-unknown}-${content_sha}"
 
       - name: Build
         timeout-minutes: 60
