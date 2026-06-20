@@ -6,14 +6,20 @@
 #   1. Exchange the long-lived PAT for a short-lived runner *registration token*
 #      via the GitHub REST API (the registration token is never baked/stored).
 #   2. config.sh --ephemeral --unattended --replace
-#   3. run.sh  -> serves exactly ONE job, deregisters itself, exits 0.
+#   3. run.sh  -> serves exactly ONE job, deregisters itself, exits.
 #   4. Loop — re-register and wait for the next job.
 #
 # Looping inside the container avoids Kubernetes CrashLoopBackOff backoff:
 # k8s restartPolicy:Always applies exponential backoff even on clean (exit-0)
 # exits, causing runners to sit idle for minutes between jobs. Keeping the
 # container alive and re-registering internally eliminates the backoff entirely.
-# Non-zero exit from run.sh still exits the container so k8s can restart it.
+#
+# run.sh exit code is intentionally NOT treated as fatal: the runner agent
+# exits non-zero to request a restart after an in-place self-update, so a hard
+# exit there would kill the container on every agent update. Any non-zero exit
+# just re-loops and re-registers. Truly fatal conditions (revoked PAT, GitHub
+# unreachable) surface at gh_token/config.sh, where `set -e` exits the container
+# and lets k8s restart it — the correct escalation path.
 set -euo pipefail
 
 : "${GITHUB_OWNER:?GITHUB_OWNER is required}"
@@ -68,10 +74,8 @@ while true; do
     --replace
 
   echo "[entrypoint] starting run.sh (serves one job, then exits)..."
-  if ! ./run.sh; then
-    echo "[entrypoint] run.sh exited non-zero — exiting container for k8s restart"
-    exit 1
-  fi
+  ./run.sh || echo "[entrypoint] run.sh exited non-zero (agent self-update or transient) — re-registering..."
 
-  echo "[entrypoint] job complete — re-registering for next job..."
+  echo "[entrypoint] job cycle complete — re-registering for next job..."
+  sleep 2
 done
