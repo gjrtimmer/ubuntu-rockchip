@@ -266,7 +266,16 @@ jobs:
         shell: bash
         run: git lfs fetch && git lfs checkout
 
-      - name: Fetch shared rootfs from S3 (daily RootFS pipeline)
+      - name: Resolve rootfs cache key
+        id: rfkey
+        run: |
+          livecd_sha=$(git ls-remote "https://github.com/Joshua-Riek/livecd-rootfs" HEAD | awk 'NR==1{print substr($1,1,12)}')
+          content_sha=$(cat config/suites/${{ matrix.suite }}.sh config/flavors/${{ matrix.flavor }}.sh scripts/build-rootfs.sh | sha256sum | cut -c1-12)
+          week=$(date -u +%Y-W%V)
+          echo "key=cache/rootfs/${{ matrix.suite }}/${{ matrix.flavor }}/${week}/${livecd_sha:-unknown}-${content_sha}" >> "$GITHUB_OUTPUT"
+          echo "rootfs cache key: cache/rootfs/${{ matrix.suite }}/${{ matrix.flavor }}/${week}/${livecd_sha:-unknown}-${content_sha}"
+
+      - name: Fetch rootfs (cache → latest.tar.xz fallback)
         shell: bash
         env:
           S3_HOST: ${{ secrets.S3_HOST }}
@@ -275,9 +284,15 @@ jobs:
           S3_BUCKET: ${{ secrets.S3_BUCKET }}
         run: |
           ver=${{ matrix.suite == 'jammy' && '22.04' || matrix.suite == 'noble' && '24.04' }}
-          ./scripts/ci-s3.sh get "rootfs/${{ matrix.suite }}/${{ matrix.flavor }}/latest.tar.xz" build
-          [ -f build/latest.tar.xz ] || { echo "ERROR: shared rootfs rootfs/${{ matrix.suite }}/${{ matrix.flavor }}/latest.tar.xz not found — run the RootFS pipeline first"; exit 1; }
-          mv build/latest.tar.xz "build/ubuntu-${ver}-preinstalled-${{ matrix.flavor }}-arm64.rootfs.tar.xz"
+          ./scripts/ci-s3.sh get "${{ steps.rfkey.outputs.key }}" build
+          if compgen -G "build/ubuntu-*-preinstalled-${{ matrix.flavor }}-arm64.rootfs.tar.xz" >/dev/null; then
+            echo "rootfs cache HIT"
+          else
+            echo "rootfs cache MISS — fetching latest.tar.xz"
+            ./scripts/ci-s3.sh get "rootfs/${{ matrix.suite }}/${{ matrix.flavor }}/latest.tar.xz" build
+            [ -f build/latest.tar.xz ] || { echo "ERROR: rootfs not in cache or at rootfs/${{ matrix.suite }}/${{ matrix.flavor }}/latest.tar.xz — run the RootFS pipeline first"; exit 1; }
+            mv build/latest.tar.xz "build/ubuntu-${ver}-preinstalled-${{ matrix.flavor }}-arm64.rootfs.tar.xz"
+          fi
 
       - name: Fetch kernel from S3 (CI handoff)
         shell: bash

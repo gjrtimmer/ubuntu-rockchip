@@ -104,9 +104,46 @@ jobs:
         shell: bash
         run: git lfs fetch && git lfs checkout
 
+      - name: Resolve rootfs cache key
+        id: rfkey
+        run: |
+          livecd_sha=$(git ls-remote "https://github.com/Joshua-Riek/livecd-rootfs" HEAD | awk 'NR==1{print substr($1,1,12)}')
+          content_sha=$(cat config/suites/${{ matrix.suite }}.sh config/flavors/${{ matrix.flavor }}.sh scripts/build-rootfs.sh | sha256sum | cut -c1-12)
+          week=$(date -u +%Y-W%V)
+          echo "key=cache/rootfs/${{ matrix.suite }}/${{ matrix.flavor }}/${week}/${livecd_sha:-unknown}-${content_sha}" >> "$GITHUB_OUTPUT"
+          echo "rootfs cache key: cache/rootfs/${{ matrix.suite }}/${{ matrix.flavor }}/${week}/${livecd_sha:-unknown}-${content_sha}"
+
+      - name: Restore rootfs cache (S3)
+        id: rfc
+        shell: bash
+        env:
+          S3_HOST: ${{ secrets.S3_HOST }}
+          S3_CLIENT_ID: ${{ secrets.S3_CLIENT_ID }}
+          S3_CLIENT_SECRET: ${{ secrets.S3_CLIENT_SECRET }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          ./scripts/ci-s3.sh get "${{ steps.rfkey.outputs.key }}" build
+          if compgen -G "build/ubuntu-*-preinstalled-${{ matrix.flavor }}-arm64.rootfs.tar.xz" >/dev/null; then
+            echo "hit=true" >> "$GITHUB_OUTPUT"; echo "rootfs cache HIT — skipping build"
+          else
+            echo "hit=false" >> "$GITHUB_OUTPUT"; echo "rootfs cache MISS — building"
+          fi
+
       - name: Build
+        if: steps.rfc.outputs.hit != 'true'
         shell: bash
         run: sudo http_proxy="${{ vars.APT_PROXY }}" https_proxy="${{ vars.APT_PROXY }}" no_proxy="localhost,127.0.0.1,::1,github.com,.github.com,.githubusercontent.com,codeload.github.com" ./build.sh --suite=${{ matrix.suite }} --flavor=${{ matrix.flavor }} --rootfs-only
+
+      - name: Save rootfs cache (S3)
+        if: steps.rfc.outputs.hit != 'true'
+        shell: bash
+        env:
+          S3_HOST: ${{ secrets.S3_HOST }}
+          S3_CLIENT_ID: ${{ secrets.S3_CLIENT_ID }}
+          S3_CLIENT_SECRET: ${{ secrets.S3_CLIENT_SECRET }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          ./scripts/ci-s3.sh put build "${{ steps.rfkey.outputs.key }}" "ubuntu-*-preinstalled-${{ matrix.flavor }}-arm64.rootfs.tar.xz"
 
       - name: Publish rootfs to S3 (CI handoff)
         shell: bash
