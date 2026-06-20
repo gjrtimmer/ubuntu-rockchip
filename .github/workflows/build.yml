@@ -96,39 +96,6 @@ jobs:
               echo "kernel_matrix={\"include\":[${kernel_entries%,}]}"
           } >> "$GITHUB_OUTPUT"
 
-  rootfs:
-    runs-on: [self-hosted, ARM64, RK1]
-    name: Build rootfs
-    needs: [config]
-    strategy:
-        matrix: ${{ fromJson(needs.config.outputs.rootfs_matrix) }}
-    steps:
-      - name: Reset workspace
-        shell: bash
-        run: sudo rm -rf ./build ./images || true
-
-      - name: Checkout code
-        uses: actions/checkout@v7.0.0
-
-      - name: Checkout LFS
-        shell: bash
-        run: git lfs fetch && git lfs checkout
-
-      - name: Build
-        shell: bash
-        run: sudo http_proxy="${{ vars.APT_PROXY }}" https_proxy="${{ vars.APT_PROXY }}" no_proxy="localhost,127.0.0.1,::1,github.com,.github.com,.githubusercontent.com,codeload.github.com" ./build.sh --suite=${{ matrix.suite }} --flavor=${{ matrix.flavor }} --rootfs-only
-
-      - name: Publish rootfs to S3 (CI handoff)
-        shell: bash
-        env:
-          S3_HOST: ${{ secrets.S3_HOST }}
-          S3_CLIENT_ID: ${{ secrets.S3_CLIENT_ID }}
-          S3_CLIENT_SECRET: ${{ secrets.S3_CLIENT_SECRET }}
-          S3_BUCKET: ${{ secrets.S3_BUCKET }}
-        run: |
-          ver=${{ matrix.suite == 'jammy' && '22.04' || matrix.suite == 'noble' && '24.04' }}
-          ./scripts/ci-s3.sh put build "ci/${{ github.run_id }}/rootfs/${ver}-${{ matrix.flavor }}" "ubuntu-*-preinstalled-${{ matrix.flavor }}-arm64.rootfs.tar.xz"
-
   kernel:
     runs-on: [self-hosted, ARM64, RK1]
     name: Build kernel
@@ -200,7 +167,7 @@ jobs:
 
   build:
     runs-on: [self-hosted, ARM64, RK1]
-    needs: [config, rootfs, kernel]
+    needs: [config, kernel]
     name: Build image
     strategy:
       matrix: ${{ fromJson(needs.config.outputs.build_matrix) }}
@@ -216,7 +183,7 @@ jobs:
         shell: bash
         run: git lfs fetch && git lfs checkout
 
-      - name: Fetch rootfs from S3 (CI handoff)
+      - name: Fetch shared rootfs from S3 (daily RootFS pipeline)
         shell: bash
         env:
           S3_HOST: ${{ secrets.S3_HOST }}
@@ -225,8 +192,9 @@ jobs:
           S3_BUCKET: ${{ secrets.S3_BUCKET }}
         run: |
           ver=${{ matrix.suite == 'jammy' && '22.04' || matrix.suite == 'noble' && '24.04' }}
-          ./scripts/ci-s3.sh get "ci/${{ github.run_id }}/rootfs/${ver}-${{ matrix.flavor }}" build
-          compgen -G "build/ubuntu-*-preinstalled-${{ matrix.flavor }}-arm64.rootfs.tar.xz" >/dev/null || { echo "ERROR: rootfs handoff missing from S3"; exit 1; }
+          ./scripts/ci-s3.sh get "rootfs/${{ matrix.suite }}/${{ matrix.flavor }}/latest.tar.xz" build
+          [ -f build/latest.tar.xz ] || { echo "ERROR: shared rootfs rootfs/${{ matrix.suite }}/${{ matrix.flavor }}/latest.tar.xz not found — run the RootFS pipeline first"; exit 1; }
+          mv build/latest.tar.xz "build/ubuntu-${ver}-preinstalled-${{ matrix.flavor }}-arm64.rootfs.tar.xz"
 
       - name: Fetch kernel from S3 (CI handoff)
         shell: bash
