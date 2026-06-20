@@ -28,6 +28,15 @@
 # just re-loops and re-registers. Truly fatal conditions (revoked PAT, GitHub
 # unreachable) surface at gh_token/config.sh, where `set -e` exits the container
 # and lets k8s restart it — the correct escalation path.
+#
+# Graceful shutdown: run.sh is started in the BACKGROUND and waited on, so a
+# SIGTERM from k8s (rollout/drain) runs the deregister trap immediately instead
+# of being deferred until the foreground run.sh returns (which it would not,
+# while idle-listening — k8s signals only PID 1, not the agent child). The trap
+# forwards TERM to the agent so it stops the current job and releases its
+# listener session, then removes the runner registration. This frees the
+# session and prunes the offline entry on rollout instead of leaving it to age
+# out (~2 min session / ~24h ephemeral entry).
 set -euo pipefail
 
 : "${GITHUB_OWNER:?GITHUB_OWNER is required}"
@@ -68,8 +77,17 @@ short_hash() {
   [ -n "$u" ] && printf '%s' "${u:0:8}" || printf '%04x%04x' "$RANDOM" "$RANDOM"
 }
 
+# PID of the backgrounded run.sh for the current iteration ("" when none).
+RUN_PID=""
+
 deregister() {
   echo "[entrypoint] caught signal — deregistering ${RUNNER_REG_NAME:-$RUNNER_NAME}..."
+  # Stop the agent first so it cancels the in-flight job and drops its listener
+  # session, then remove the registration while it is idle.
+  if [ -n "${RUN_PID}" ] && kill -0 "${RUN_PID}" 2>/dev/null; then
+    kill -TERM "${RUN_PID}" 2>/dev/null || true
+    wait "${RUN_PID}" 2>/dev/null || true
+  fi
   ./config.sh remove --token "$(gh_token remove-token)" || true
   exit 0
 }
@@ -95,7 +113,12 @@ while true; do
     --replace
 
   echo "[entrypoint] starting run.sh (serves one job, then exits)..."
-  ./run.sh || echo "[entrypoint] run.sh exited non-zero (agent self-update or transient) — re-registering..."
+  # Background + wait so a SIGTERM interrupts `wait` and runs the deregister
+  # trap at once, rather than being queued behind a foreground run.sh.
+  ./run.sh &
+  RUN_PID=$!
+  wait "${RUN_PID}" || echo "[entrypoint] run.sh exited non-zero (agent self-update or transient) — re-registering..."
+  RUN_PID=""
 
   echo "[entrypoint] job cycle complete — re-registering for next job..."
   sleep 2
