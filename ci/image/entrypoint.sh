@@ -5,9 +5,17 @@
 #   Each iteration of the main loop:
 #   1. Exchange the long-lived PAT for a short-lived runner *registration token*
 #      via the GitHub REST API (the registration token is never baked/stored).
-#   2. config.sh --ephemeral --unattended --replace
+#   2. config.sh --ephemeral --unattended --replace, registering under a name
+#      that gets a fresh short hash suffix every iteration (node1-a1b2c3d4).
 #   3. run.sh  -> serves exactly ONE job, deregisters itself, exits.
-#   4. Loop — re-register and wait for the next job.
+#   4. Loop — re-register (new hash) and wait for the next job.
+#
+# The per-registration hash suffix avoids a runner-name collision on rollout:
+# the DaemonSet fixes RUNNER_NAME to the node name (fieldRef spec.nodeName), so
+# a killed pod's listener session (held by GitHub for ~2 min) would otherwise
+# block the replacement pod with "A session for this runner already exists",
+# delaying job pickup. A unique suffix means the lingering session can never
+# collide; the stale entry ages out as an offline ephemeral runner (auto-reaped).
 #
 # Looping inside the container avoids Kubernetes CrashLoopBackOff backoff:
 # k8s restartPolicy:Always applies exponential backoff even on clean (exit-0)
@@ -51,8 +59,17 @@ gh_token() {
     | jq -r '.token'
 }
 
+# Fresh 8-hex token, regenerated per registration, for a unique runner name.
+# /proc/sys/kernel/random/uuid is always present in the Linux container; the
+# $RANDOM line is a no-dependency fallback (no openssl/xxd needed).
+short_hash() {
+  local u
+  u="$(cat /proc/sys/kernel/random/uuid 2>/dev/null)"; u="${u//-/}"
+  [ -n "$u" ] && printf '%s' "${u:0:8}" || printf '%04x%04x' "$RANDOM" "$RANDOM"
+}
+
 deregister() {
-  echo "[entrypoint] caught signal — deregistering ${RUNNER_NAME}..."
+  echo "[entrypoint] caught signal — deregistering ${RUNNER_REG_NAME:-$RUNNER_NAME}..."
   ./config.sh remove --token "$(gh_token remove-token)" || true
   exit 0
 }
@@ -62,11 +79,15 @@ while true; do
   echo "[entrypoint] requesting registration token for ${GITHUB_OWNER}/${GITHUB_REPO}..."
   REG_TOKEN="$(gh_token registration-token)"
 
-  echo "[entrypoint] configuring ephemeral runner ${RUNNER_NAME} (labels: ${RUNNER_LABELS})..."
+  # Fresh unique name per registration (node1-a1b2c3d4) so a stale session from
+  # a just-killed pod with the same node name can never block this one.
+  RUNNER_REG_NAME="${RUNNER_NAME}-$(short_hash)"
+
+  echo "[entrypoint] configuring ephemeral runner ${RUNNER_REG_NAME} (labels: ${RUNNER_LABELS})..."
   ./config.sh \
     --url "${REPO_URL}" \
     --token "${REG_TOKEN}" \
-    --name "${RUNNER_NAME}" \
+    --name "${RUNNER_REG_NAME}" \
     --labels "${RUNNER_LABELS}" \
     --work "${RUNNER_WORKDIR}" \
     --ephemeral \
