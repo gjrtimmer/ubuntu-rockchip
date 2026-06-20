@@ -21,7 +21,11 @@ jobs:
     steps:
       - name: Reset workspace
         shell: bash
-        run: sudo rm -rf ./build ./images || true
+        run: |
+          for m in $(mount | awk '{print $3}' | grep "$(pwd)/build" | sort -r); do
+            sudo umount -lf "$m" 2>/dev/null || true
+          done
+          sudo rm -rf ./build ./images || true
 
       - name: Checkout code
         uses: actions/checkout@v7.0.0
