@@ -160,11 +160,18 @@ if [ -n "${BOARD}" ]; then
 fi
 
 if [ "${CLEAN}" == "Y" ]; then
-    if [ -d build/rootfs ]; then
-        umount -lf build/rootfs/dev/pts 2> /dev/null || true
-        umount -lf build/rootfs/* 2> /dev/null || true
+    # build/ can hold TWO chroots with live mounts a cancelled build never tore down:
+    # build/rootfs (config-image.sh devtmpfs at rootfs/dev) and build/live-build/chroot
+    # (live-build binds host /dev — same kernel-global /dev/null object). Enumerate EVERY
+    # mount under build/ (deepest-first, incl. nested sys/fs/cgroup & sys/kernel/security)
+    # and lazy-detach, THEN delete with --one-file-system as the hard guard: rm stops at
+    # every mount boundary, so it can never recurse into a live devtmpfs and unlink host /dev/null.
+    if [ -d build ]; then
+        for m in $(awk -v d="$(realpath build)" '$2 ~ "^"d"(/|$)" {print $2}' /proc/self/mounts | LC_ALL=C sort -r); do
+            umount -lf "$m" 2> /dev/null || true
+        done
     fi
-    rm -rf build
+    rm -rf --one-file-system build
 fi
 
 mkdir -p build/logs && exec > >(tee "build/logs/build-$(date +"%Y%m%d%H%M%S").log") 2>&1

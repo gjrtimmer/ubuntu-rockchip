@@ -62,6 +62,18 @@ popd
 
 mkdir -p live-build && cd live-build
 
+# Defence-in-depth: `lb build` bind-mounts the host /dev (same kernel-global /dev/null object)
+# plus proc/sys/devpts under live-build/chroot. If the build is cancelled or dies, those mounts
+# are left live; a later `rm -rf build` (e.g. --clean) could recurse across them. Unmount
+# everything under the chroot AT CANCEL TIME. Absolute path so it resolves regardless of cwd;
+# deepest-first; lazy + best-effort.
+chroot_abs="$(pwd)/chroot"
+trap '
+  for _m in $(awk -v d="${chroot_abs}" "\$2 ~ \"^\"d\"(/|\$)\" {print \$2}" /proc/self/mounts 2>/dev/null | LC_ALL=C sort -r); do
+    umount -lf "${_m}" 2>/dev/null || true
+  done
+' EXIT INT TERM
+
 # Query the system to locate livecd-rootfs auto script installation path
 cp -r "$(dpkg -L livecd-rootfs | grep "auto$")" auto
 

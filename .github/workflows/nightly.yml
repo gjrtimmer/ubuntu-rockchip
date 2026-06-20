@@ -22,10 +22,14 @@ jobs:
       - name: Reset workspace
         shell: bash
         run: |
+          # Detach any chroot mounts a cancelled build left behind (esp. the kernel-global
+          # devtmpfs at build/rootfs/dev) BEFORE deleting. --one-file-system is the hard guard:
+          # rm stops at any mount boundary, so even if the unmount below misses (e.g. $(pwd)
+          # symlink divergence) rm can never recurse into the live devtmpfs and unlink host /dev/null.
           for m in $(mount | awk '{print $3}' | grep "$(pwd)/build" | sort -r); do
             sudo umount -lf "$m" 2>/dev/null || true
           done
-          sudo rm -rf ./build ./images || true
+          sudo rm -rf --one-file-system ./build ./images || true
 
       - name: Checkout code
         uses: actions/checkout@v7.0.0
@@ -100,10 +104,14 @@ jobs:
       - name: Reset workspace
         shell: bash
         run: |
+          # Detach any chroot mounts a cancelled build left behind (esp. the kernel-global
+          # devtmpfs at build/rootfs/dev) BEFORE deleting. --one-file-system is the hard guard:
+          # rm stops at any mount boundary, so even if the unmount below misses (e.g. $(pwd)
+          # symlink divergence) rm can never recurse into the live devtmpfs and unlink host /dev/null.
           for m in $(mount | awk '{print $3}' | grep "$(pwd)/build" | sort -r); do
             sudo umount -lf "$m" 2>/dev/null || true
           done
-          sudo rm -rf ./build ./images || true
+          sudo rm -rf --one-file-system ./build ./images || true
 
       - name: Checkout code
         uses: actions/checkout@v7.0.0
@@ -180,10 +188,14 @@ jobs:
       - name: Reset workspace
         shell: bash
         run: |
+          # Detach any chroot mounts a cancelled build left behind (esp. the kernel-global
+          # devtmpfs at build/rootfs/dev) BEFORE deleting. --one-file-system is the hard guard:
+          # rm stops at any mount boundary, so even if the unmount below misses (e.g. $(pwd)
+          # symlink divergence) rm can never recurse into the live devtmpfs and unlink host /dev/null.
           for m in $(mount | awk '{print $3}' | grep "$(pwd)/build" | sort -r); do
             sudo umount -lf "$m" 2>/dev/null || true
           done
-          sudo rm -rf ./build ./images || true
+          sudo rm -rf --one-file-system ./build ./images || true
 
       - name: Checkout code
         uses: actions/checkout@v7.0.0
@@ -256,10 +268,14 @@ jobs:
       - name: Reset workspace
         shell: bash
         run: |
+          # Detach any chroot mounts a cancelled build left behind (esp. the kernel-global
+          # devtmpfs at build/rootfs/dev) BEFORE deleting. --one-file-system is the hard guard:
+          # rm stops at any mount boundary, so even if the unmount below misses (e.g. $(pwd)
+          # symlink divergence) rm can never recurse into the live devtmpfs and unlink host /dev/null.
           for m in $(mount | awk '{print $3}' | grep "$(pwd)/build" | sort -r); do
             sudo umount -lf "$m" 2>/dev/null || true
           done
-          sudo rm -rf ./build ./images || true
+          sudo rm -rf --one-file-system ./build ./images || true
 
       - name: Checkout code
         uses: actions/checkout@v7.0.0
@@ -329,10 +345,14 @@ jobs:
       - name: Reset workspace
         shell: bash
         run: |
+          # Detach any chroot mounts a cancelled build left behind (esp. the kernel-global
+          # devtmpfs at build/rootfs/dev) BEFORE deleting. --one-file-system is the hard guard:
+          # rm stops at any mount boundary, so even if the unmount below misses (e.g. $(pwd)
+          # symlink divergence) rm can never recurse into the live devtmpfs and unlink host /dev/null.
           for m in $(mount | awk '{print $3}' | grep "$(pwd)/build" | sort -r); do
             sudo umount -lf "$m" 2>/dev/null || true
           done
-          sudo rm -rf ./build ./images || true
+          sudo rm -rf --one-file-system ./build ./images || true
 
       - name: Checkout code
         uses: actions/checkout@v7.0.0
@@ -399,4 +419,12 @@ jobs:
 
       - name: Clean cache
         shell: bash
-        run: sync && sudo rm -rf ./images/ ./build/ && sync
+        run: |
+          sync
+          # Detach leftover chroot mounts before deleting; --one-file-system stops rm at every
+          # mount boundary so it can never recurse into a live devtmpfs and unlink host /dev/null.
+          for m in $(mount | awk '{print $3}' | grep "$(pwd)/build" | sort -r); do
+            sudo umount -lf "$m" 2>/dev/null || true
+          done
+          sudo rm -rf --one-file-system ./images/ ./build/
+          sync

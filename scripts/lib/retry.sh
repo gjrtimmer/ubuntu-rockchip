@@ -18,7 +18,9 @@ git_clone_retry() {
     shift 2
     local attempt
     for attempt in 1 2 3; do
-        rm -rf "${dest}"
+        # --one-file-system: never cross a mount boundary while clearing a partial clone,
+        # so this can never recurse into a stray mount and damage the host.
+        rm -rf --one-file-system "${dest}"
         git clone "$@" "${url}" "${dest}" && return 0
         [ "${attempt}" -lt 3 ] || { echo "Error: git clone ${url} failed after 3 attempts"; return 1; }
         echo "git clone attempt ${attempt}/3 failed — retrying in 15s"

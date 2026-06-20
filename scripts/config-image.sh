@@ -124,8 +124,29 @@ export LC_ALL=C
 chroot_dir=rootfs
 overlay_dir=../overlay
 
-# Extract the compressed root filesystem
-rm -rf ${chroot_dir} && mkdir -p ${chroot_dir}
+# Defence-in-depth: if the build is cancelled (SIGINT/SIGTERM) or dies between setup_mountpoint
+# and teardown_mountpoint, unmount everything under the chroot AT CANCEL TIME so we never leave a
+# live kernel-global devtmpfs at rootfs/dev for a later rm to recurse into. Captures an absolute
+# path so it resolves regardless of cwd; deepest-first; lazy + best-effort. The --one-file-system
+# rm guards below remain the backstop for SIGKILL (which no trap can catch).
+chroot_abs="$(pwd)/${chroot_dir}"
+trap '
+  for _m in $(awk -v d="${chroot_abs}" "\$2 ~ \"^\"d\"(/|\$)\" {print \$2}" /proc/self/mounts 2>/dev/null | LC_ALL=C sort -r); do
+    umount -lf "${_m}" 2>/dev/null || true
+  done
+' EXIT INT TERM
+
+# Extract the compressed root filesystem.
+# A prior cancelled build can leave a kernel-global devtmpfs mounted at ${chroot_dir}/dev
+# (setup_mountpoint, never torn down on cancel). Detach any leftover mounts first, then
+# delete with --one-file-system as a hard guard: rm stops at every mount boundary, so it
+# can never recurse into the live devtmpfs and unlink the host's /dev/null.
+if [ -d "${chroot_dir}" ]; then
+    for m in $(awk -v d="$(realpath "${chroot_dir}")" '$2 ~ "^"d"(/|$)" {print $2}' /proc/self/mounts | LC_ALL=C sort -r); do
+        umount -lf "$m" 2>/dev/null || true
+    done
+fi
+rm -rf --one-file-system ${chroot_dir} && mkdir -p ${chroot_dir}
 rootfs_tar=$(find . -maxdepth 1 -name "ubuntu-*-preinstalled-${FLAVOR}-arm64.rootfs.tar.xz" | sort | tail -n1)
 [ -n "${rootfs_tar}" ] || { echo "Error: rootfs tar not found for flavor=${FLAVOR}"; exit 1; }
 # Extract YYYYMM from filename: ubuntu-VERSION-YYYYMM-preinstalled-...; fall back to current month
@@ -176,7 +197,10 @@ chroot ${chroot_dir} apt-get -y autoremove
 # Umount the root filesystem
 teardown_mountpoint $chroot_dir
 
-# Compress the root filesystem and then build a disk image
-cd ${chroot_dir} && tar -cpf "../ubuntu-${RELASE_VERSION}-${rootfs_month}-preinstalled-${FLAVOR}-arm64-${BOARD}.rootfs.tar" . && cd .. && rm -rf ${chroot_dir}
+# Compress the root filesystem and then build a disk image.
+# --one-file-system guards the post-teardown delete: if teardown_mountpoint left anything
+# mounted under ${chroot_dir} (e.g. the devtmpfs at ${chroot_dir}/dev), rm stops at the
+# mount boundary instead of recursing into the kernel-global devtmpfs and unlinking host /dev/null.
+cd ${chroot_dir} && tar -cpf "../ubuntu-${RELASE_VERSION}-${rootfs_month}-preinstalled-${FLAVOR}-arm64-${BOARD}.rootfs.tar" . && cd .. && rm -rf --one-file-system ${chroot_dir}
 ../scripts/build-image.sh "ubuntu-${RELASE_VERSION}-${rootfs_month}-preinstalled-${FLAVOR}-arm64-${BOARD}.rootfs.tar"
 rm -f "ubuntu-${RELASE_VERSION}-${rootfs_month}-preinstalled-${FLAVOR}-arm64-${BOARD}.rootfs.tar"
