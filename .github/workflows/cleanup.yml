@@ -19,6 +19,10 @@ jobs:
     runs-on: [self-hosted, ARM64, RK1]
     name: Prune ci/ handoffs
     steps:
+      - name: Reset workspace
+        shell: bash
+        run: sudo rm -rf ./build ./images || true
+
       - name: Checkout code
         uses: actions/checkout@v7.0.0
 
