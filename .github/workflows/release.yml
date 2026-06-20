@@ -17,8 +17,10 @@ jobs:
     runs-on: ubuntu-latest
     name: Create matrix
     outputs:
-      build_matrix: ${{ steps.build.outputs.build_matrix }}
-      rootfs_matrix: ${{ steps.rootfs.outputs.rootfs_matrix }}
+      build_matrix: ${{ steps.gen.outputs.build_matrix }}
+      rootfs_matrix: ${{ steps.gen.outputs.rootfs_matrix }}
+      kernel_matrix: ${{ steps.gen.outputs.kernel_matrix }}
+      uboot_matrix: ${{ steps.gen.outputs.uboot_matrix }}
     steps:
       - name: Reset workspace
         shell: bash
@@ -27,35 +29,64 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7.0.0
 
-      - name: Create build matrix
-        id: build
+      - name: Generate matrices
+        id: gen
         run: |
-            build_matrix=""
-            for file in config/boards/*; do
-                COMPATIBLE_SUITES=()
-                COMPATIBLE_FLAVORS=()
-                # shellcheck disable=SC1090
-                source "${file}"
-                for suite in "${COMPATIBLE_SUITES[@]}"; do
-                    case "${suite}" in jammy|noble) ;; *) continue ;; esac   # release LTS only (jammy + noble)
-                    for flavor in "${COMPATIBLE_FLAVORS[@]}"; do
-                    build_matrix+="{\"board\":\"$(basename "${file%.sh}")\",\"suite\":\"${suite}\",\"flavor\":\"${flavor}\"},"
-                    done
-                done
-            done
-            echo "build_matrix={\"include\":[${build_matrix::-1}]}" >> $GITHUB_OUTPUT
+          # Release builds LTS suites only (jammy 22.04 + noble 24.04).
+          SUITES=(jammy noble)
+          FLAVORS=(desktop server)
 
-      - name: Create rootfs matrix
-        id: rootfs
-        run: |
-            rootfs_matrix=""
-            for suite in config/suites/*; do
-                case "$(basename "${suite%.sh}")" in jammy|noble) ;; *) continue ;; esac   # release LTS only (jammy + noble)
-                for flavor in config/flavors/*; do
-                    rootfs_matrix+="{\"suite\":\"$(basename "${suite%.sh}")\",\"flavor\":\"$(basename "${flavor%.sh}")\"},"
-                done
-            done
-            echo "rootfs_matrix={\"include\":[${rootfs_matrix::-1}]}" >> $GITHUB_OUTPUT
+          build_entries=""
+          declare -A seen_sf seen_s seen_ub
+          for file in config/boards/*.sh; do
+              board="$(basename "${file%.sh}")"
+              COMPATIBLE_SUITES=(); COMPATIBLE_FLAVORS=()
+              UBOOT_PACKAGE=""; UBOOT_RULES_TARGET=""
+              # shellcheck disable=SC1090
+              source "${file}"
+              board_matched=0
+              for suite in "${SUITES[@]}"; do
+                  [[ " ${COMPATIBLE_SUITES[*]} " == *" ${suite} "* ]] || continue
+                  for flavor in "${FLAVORS[@]}"; do
+                      [[ " ${COMPATIBLE_FLAVORS[*]} " == *" ${flavor} "* ]] || continue
+                      build_entries+="{\"board\":\"${board}\",\"suite\":\"${suite}\",\"flavor\":\"${flavor}\"},"
+                      seen_sf["${suite}|${flavor}"]=1
+                      seen_s["${suite}"]=1
+                      board_matched=1
+                  done
+              done
+              if [[ "${board_matched}" == "1" && -n "${UBOOT_PACKAGE}" && -n "${UBOOT_RULES_TARGET}" \
+                    && -z "${seen_ub[${UBOOT_PACKAGE}|${UBOOT_RULES_TARGET}]+x}" ]]; then
+                  seen_ub["${UBOOT_PACKAGE}|${UBOOT_RULES_TARGET}"]="${board}"
+              fi
+          done
+
+          if [ -z "${build_entries}" ]; then
+              echo "::error::No board/suite/flavor combination matched."
+              exit 1
+          fi
+
+          rootfs_entries=""
+          for k in "${!seen_sf[@]}"; do
+              rootfs_entries+="{\"suite\":\"${k%%|*}\",\"flavor\":\"${k##*|}\"},"
+          done
+          kernel_entries=""
+          for s in "${!seen_s[@]}"; do
+              kernel_entries+="{\"suite\":\"${s}\"},"
+          done
+          # u-boot is per (package, target) pair: one build covers all boards sharing that pair.
+          uboot_entries=""
+          for k in "${!seen_ub[@]}"; do
+              pkg="${k%%|*}"; target="${k##*|}"; rep_board="${seen_ub[$k]}"
+              uboot_entries+="{\"uboot_package\":\"${pkg}\",\"uboot_target\":\"${target}\",\"board\":\"${rep_board}\"},"
+          done
+
+          {
+              echo "build_matrix={\"include\":[${build_entries%,}]}"
+              echo "rootfs_matrix={\"include\":[${rootfs_entries%,}]}"
+              echo "kernel_matrix={\"include\":[${kernel_entries%,}]}"
+              echo "uboot_matrix={\"include\":[${uboot_entries%,}]}"
+          } >> "$GITHUB_OUTPUT"
 
   rootfs:
     runs-on: [self-hosted, ARM64, RK1]
@@ -79,7 +110,7 @@ jobs:
 
       - name: Build
         shell: bash
-        run: sudo http_proxy="${{ vars.APT_PROXY }}" https_proxy="${{ vars.APT_PROXY }}" no_proxy="localhost,127.0.0.1,::1,github.com,.github.com,.githubusercontent.com,codeload.github.com" ./build.sh --suite=${{ matrix.suite }} --flavor=${{ matrix.flavor }} --rootfs-only --launchpad
+        run: sudo http_proxy="${{ vars.APT_PROXY }}" https_proxy="${{ vars.APT_PROXY }}" no_proxy="localhost,127.0.0.1,::1,github.com,.github.com,.githubusercontent.com,codeload.github.com" ./build.sh --suite=${{ matrix.suite }} --flavor=${{ matrix.flavor }} --rootfs-only
 
       - name: Publish rootfs to S3 (CI handoff)
         shell: bash
@@ -92,9 +123,145 @@ jobs:
           ver=${{ steps.vars.outputs.suite_version }}
           ./scripts/ci-s3.sh put build "ci/${{ github.run_id }}/rootfs/${ver}-${{ matrix.flavor }}" "ubuntu-*-preinstalled-${{ matrix.flavor }}-arm64.rootfs.tar.xz"
 
+  kernel:
+    runs-on: [self-hosted, ARM64, RK1]
+    name: Build kernel
+    needs: [config]
+    strategy:
+        matrix: ${{ fromJson(needs.config.outputs.kernel_matrix) }}
+    steps:
+      - name: Reset workspace
+        shell: bash
+        run: sudo rm -rf ./build ./images || true
+
+      - name: Checkout code
+        uses: actions/checkout@v7.0.0
+
+      - name: Checkout LFS
+        shell: bash
+        run: git lfs fetch && git lfs checkout
+
+      - name: Resolve kernel cache key
+        id: kkey
+        shell: bash
+        run: |
+          # Key the cache on the kernel source commit so a source update auto-invalidates it.
+          # shellcheck disable=SC1090
+          source config/suites/${{ matrix.suite }}.sh
+          sha="$(git ls-remote "${KERNEL_REPO}" "refs/heads/${KERNEL_BRANCH}" | awk 'NR==1{print substr($1,1,12)}')"
+          echo "key=cache/kernel/${{ matrix.suite }}/${sha:-unknown}" >> "$GITHUB_OUTPUT"
+          echo "kernel cache key: cache/kernel/${{ matrix.suite }}/${sha:-unknown}"
+
+      - name: Restore kernel cache (S3)
+        id: kc
+        shell: bash
+        env:
+          S3_HOST: ${{ secrets.S3_HOST }}
+          S3_CLIENT_ID: ${{ secrets.S3_CLIENT_ID }}
+          S3_CLIENT_SECRET: ${{ secrets.S3_CLIENT_SECRET }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          ./scripts/ci-s3.sh get "${{ steps.kkey.outputs.key }}" build
+          if compgen -G "build/linux-image-*.deb" >/dev/null && compgen -G "build/linux-headers-*.deb" >/dev/null; then
+            echo "hit=true" >> "$GITHUB_OUTPUT"; echo "kernel cache HIT — skipping compile"
+          else
+            echo "hit=false" >> "$GITHUB_OUTPUT"; echo "kernel cache MISS — compiling"
+          fi
+
+      - name: Compile kernel
+        if: steps.kc.outputs.hit != 'true'
+        shell: bash
+        run: sudo ./build.sh --suite=${{ matrix.suite }} --kernel-only
+
+      - name: Save kernel cache (S3)
+        if: steps.kc.outputs.hit != 'true'
+        shell: bash
+        env:
+          S3_HOST: ${{ secrets.S3_HOST }}
+          S3_CLIENT_ID: ${{ secrets.S3_CLIENT_ID }}
+          S3_CLIENT_SECRET: ${{ secrets.S3_CLIENT_SECRET }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: ./scripts/ci-s3.sh put build "${{ steps.kkey.outputs.key }}" 'linux-*.deb'
+
+      - name: Publish kernel to S3 (CI handoff)
+        shell: bash
+        env:
+          S3_HOST: ${{ secrets.S3_HOST }}
+          S3_CLIENT_ID: ${{ secrets.S3_CLIENT_ID }}
+          S3_CLIENT_SECRET: ${{ secrets.S3_CLIENT_SECRET }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: ./scripts/ci-s3.sh put build "ci/${{ github.run_id }}/kernel/${{ matrix.suite }}" 'linux-*.deb'
+
+  uboot:
+    runs-on: [self-hosted, ARM64, RK1]
+    name: Build u-boot
+    needs: [config]
+    strategy:
+      matrix: ${{ fromJson(needs.config.outputs.uboot_matrix) }}
+    steps:
+      - name: Reset workspace
+        shell: bash
+        run: sudo rm -rf ./build ./images || true
+
+      - name: Checkout code
+        uses: actions/checkout@v7.0.0
+
+      - name: Checkout LFS
+        shell: bash
+        run: git lfs fetch && git lfs checkout
+
+      - name: Resolve u-boot cache key
+        id: ubkey
+        shell: bash
+        run: |
+          # Key on content hash of u-boot package inputs: upstream pin, patches, rules, rkbin blobs.
+          sha=$(find packages/${{ matrix.uboot_package }}/debian -type f | sort | xargs sha256sum | sha256sum | cut -c1-12)
+          echo "key=cache/uboot/${{ matrix.uboot_package }}/${{ matrix.uboot_target }}/${sha}" >> "$GITHUB_OUTPUT"
+          echo "u-boot cache key: cache/uboot/${{ matrix.uboot_package }}/${{ matrix.uboot_target }}/${sha}"
+
+      - name: Restore u-boot cache (S3)
+        id: ubc
+        shell: bash
+        env:
+          S3_HOST: ${{ secrets.S3_HOST }}
+          S3_CLIENT_ID: ${{ secrets.S3_CLIENT_ID }}
+          S3_CLIENT_SECRET: ${{ secrets.S3_CLIENT_SECRET }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          ./scripts/ci-s3.sh get "${{ steps.ubkey.outputs.key }}" build
+          if compgen -G "build/u-boot-*.deb" >/dev/null; then
+            echo "hit=true" >> "$GITHUB_OUTPUT"; echo "u-boot cache HIT — skipping compile"
+          else
+            echo "hit=false" >> "$GITHUB_OUTPUT"; echo "u-boot cache MISS — compiling"
+          fi
+
+      - name: Compile u-boot
+        if: steps.ubc.outputs.hit != 'true'
+        shell: bash
+        run: sudo ./build.sh --board=${{ matrix.board }} --uboot-only
+
+      - name: Save u-boot cache (S3)
+        if: steps.ubc.outputs.hit != 'true'
+        shell: bash
+        env:
+          S3_HOST: ${{ secrets.S3_HOST }}
+          S3_CLIENT_ID: ${{ secrets.S3_CLIENT_ID }}
+          S3_CLIENT_SECRET: ${{ secrets.S3_CLIENT_SECRET }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: ./scripts/ci-s3.sh put build "${{ steps.ubkey.outputs.key }}" 'u-boot-*.deb'
+
+      - name: Publish u-boot to S3 (CI handoff)
+        shell: bash
+        env:
+          S3_HOST: ${{ secrets.S3_HOST }}
+          S3_CLIENT_ID: ${{ secrets.S3_CLIENT_ID }}
+          S3_CLIENT_SECRET: ${{ secrets.S3_CLIENT_SECRET }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: ./scripts/ci-s3.sh put build "ci/${{ github.run_id }}/uboot/${{ matrix.uboot_package }}/${{ matrix.uboot_target }}" 'u-boot-*.deb'
+
   build:
     runs-on: [self-hosted, ARM64, RK1]
-    needs: [rootfs, config]
+    needs: [config, rootfs, kernel, uboot]
     name: Build image
     strategy:
         matrix: ${{ fromJson(needs.config.outputs.build_matrix) }}
@@ -124,9 +291,33 @@ jobs:
           ./scripts/ci-s3.sh get "ci/${{ github.run_id }}/rootfs/${ver}-${{ matrix.flavor }}" build
           compgen -G "build/ubuntu-*-preinstalled-${{ matrix.flavor }}-arm64.rootfs.tar.xz" >/dev/null || { echo "ERROR: rootfs handoff missing from S3"; exit 1; }
 
+      - name: Fetch kernel from S3 (CI handoff)
+        shell: bash
+        env:
+          S3_HOST: ${{ secrets.S3_HOST }}
+          S3_CLIENT_ID: ${{ secrets.S3_CLIENT_ID }}
+          S3_CLIENT_SECRET: ${{ secrets.S3_CLIENT_SECRET }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          ./scripts/ci-s3.sh get "ci/${{ github.run_id }}/kernel/${{ matrix.suite }}" build
+          compgen -G "build/linux-image-*.deb" >/dev/null || { echo "ERROR: kernel handoff missing from S3"; exit 1; }
+
+      - name: Fetch u-boot from S3 (CI handoff)
+        shell: bash
+        env:
+          S3_HOST: ${{ secrets.S3_HOST }}
+          S3_CLIENT_ID: ${{ secrets.S3_CLIENT_ID }}
+          S3_CLIENT_SECRET: ${{ secrets.S3_CLIENT_SECRET }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          # shellcheck disable=SC1090
+          source config/boards/${{ matrix.board }}.sh
+          ./scripts/ci-s3.sh get "ci/${{ github.run_id }}/uboot/${UBOOT_PACKAGE}/${UBOOT_RULES_TARGET}" build
+          compgen -G "build/u-boot-*.deb" >/dev/null || { echo "ERROR: u-boot handoff missing from S3"; exit 1; }
+
       - name: Build
         shell: bash
-        run: sudo http_proxy="${{ vars.APT_PROXY }}" https_proxy="${{ vars.APT_PROXY }}" no_proxy="localhost,127.0.0.1,::1,github.com,.github.com,.githubusercontent.com,codeload.github.com" ./build.sh --board=${{ matrix.board }} --suite=${{ matrix.suite }} --flavor=${{ matrix.flavor }} --launchpad
+        run: sudo http_proxy="${{ vars.APT_PROXY }}" https_proxy="${{ vars.APT_PROXY }}" no_proxy="localhost,127.0.0.1,::1,github.com,.github.com,.githubusercontent.com,codeload.github.com" ./build.sh --board=${{ matrix.board }} --suite=${{ matrix.suite }} --flavor=${{ matrix.flavor }}
 
       - name: Publish image to S3 (images/<ver>/<board>)
         shell: bash
