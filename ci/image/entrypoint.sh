@@ -2,14 +2,18 @@
 #
 # Ephemeral GitHub Actions runner entrypoint.
 #
+#   Each iteration of the main loop:
 #   1. Exchange the long-lived PAT for a short-lived runner *registration token*
 #      via the GitHub REST API (the registration token is never baked/stored).
 #   2. config.sh --ephemeral --unattended --replace
-#   3. run.sh  -> serves exactly ONE job, deregisters itself, exits.
+#   3. run.sh  -> serves exactly ONE job, deregisters itself, exits 0.
+#   4. Loop — re-register and wait for the next job.
 #
-# The DaemonSet's implicit restartPolicy: Always then restarts the container, which
-# re-registers a fresh runner. Every job therefore lands on a clean runner; a hostile
-# build cannot persist state between jobs.
+# Looping inside the container avoids Kubernetes CrashLoopBackOff backoff:
+# k8s restartPolicy:Always applies exponential backoff even on clean (exit-0)
+# exits, causing runners to sit idle for minutes between jobs. Keeping the
+# container alive and re-registering internally eliminates the backoff entirely.
+# Non-zero exit from run.sh still exits the container so k8s can restart it.
 set -euo pipefail
 
 : "${GITHUB_OWNER:?GITHUB_OWNER is required}"
@@ -20,8 +24,7 @@ set -euo pipefail
 # environment. The job runs in THIS container (containerMode=default), so an
 # inherited GITHUB_PAT would be readable by every job step via printenv /
 # /proc/self/environ. After unset it is gone from the env handed to run.sh and
-# its children; the pre-exec deregister trap below still reads $_PAT. Because
-# _PAT is not exported, `exec ./run.sh` does not pass it on either.
+# its children; the deregister trap below still reads $_PAT.
 _PAT="${GITHUB_PAT}"
 unset GITHUB_PAT
 
@@ -49,19 +52,26 @@ deregister() {
 }
 trap deregister INT TERM
 
-echo "[entrypoint] requesting registration token for ${GITHUB_OWNER}/${GITHUB_REPO}..."
-REG_TOKEN="$(gh_token registration-token)"
+while true; do
+  echo "[entrypoint] requesting registration token for ${GITHUB_OWNER}/${GITHUB_REPO}..."
+  REG_TOKEN="$(gh_token registration-token)"
 
-echo "[entrypoint] configuring ephemeral runner ${RUNNER_NAME} (labels: ${RUNNER_LABELS})..."
-./config.sh \
-  --url "${REPO_URL}" \
-  --token "${REG_TOKEN}" \
-  --name "${RUNNER_NAME}" \
-  --labels "${RUNNER_LABELS}" \
-  --work "${RUNNER_WORKDIR}" \
-  --ephemeral \
-  --unattended \
-  --replace
+  echo "[entrypoint] configuring ephemeral runner ${RUNNER_NAME} (labels: ${RUNNER_LABELS})..."
+  ./config.sh \
+    --url "${REPO_URL}" \
+    --token "${REG_TOKEN}" \
+    --name "${RUNNER_NAME}" \
+    --labels "${RUNNER_LABELS}" \
+    --work "${RUNNER_WORKDIR}" \
+    --ephemeral \
+    --unattended \
+    --replace
 
-echo "[entrypoint] starting run.sh (serves one job, then exits)..."
-exec ./run.sh
+  echo "[entrypoint] starting run.sh (serves one job, then exits)..."
+  if ! ./run.sh; then
+    echo "[entrypoint] run.sh exited non-zero — exiting container for k8s restart"
+    exit 1
+  fi
+
+  echo "[entrypoint] job complete — re-registering for next job..."
+done
