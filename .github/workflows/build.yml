@@ -34,6 +34,7 @@ jobs:
       build_matrix: ${{ steps.gen.outputs.build_matrix }}
       rootfs_matrix: ${{ steps.gen.outputs.rootfs_matrix }}
       kernel_matrix: ${{ steps.gen.outputs.kernel_matrix }}
+      uboot_matrix: ${{ steps.gen.outputs.uboot_matrix }}
     steps:
       - name: Reset workspace
         shell: bash
@@ -56,13 +57,15 @@ jobs:
           want() { [ "$1" = "all" ] || [ "$1" = "$2" ]; }
 
           build_entries=""
-          declare -A seen_sf seen_s
+          declare -A seen_sf seen_s seen_ub
           for file in config/boards/*.sh; do
               board="$(basename "${file%.sh}")"
               want "${IN_BOARD}" "${board}" || continue
               COMPATIBLE_SUITES=(); COMPATIBLE_FLAVORS=()
+              UBOOT_PACKAGE=""; UBOOT_RULES_TARGET=""
               # shellcheck disable=SC1090
               source "${file}"
+              board_matched=0
               for suite in "${SUITES[@]}"; do
                   want "${IN_SUITE}" "${suite}" || continue
                   [[ " ${COMPATIBLE_SUITES[*]} " == *" ${suite} "* ]] || continue
@@ -72,8 +75,13 @@ jobs:
                       build_entries+="{\"board\":\"${board}\",\"suite\":\"${suite}\",\"flavor\":\"${flavor}\"},"
                       seen_sf["${suite}|${flavor}"]=1
                       seen_s["${suite}"]=1
+                      board_matched=1
                   done
               done
+              if [[ "${board_matched}" == "1" && -n "${UBOOT_PACKAGE}" && -n "${UBOOT_RULES_TARGET}" \
+                    && -z "${seen_ub[${UBOOT_PACKAGE}|${UBOOT_RULES_TARGET}]+x}" ]]; then
+                  seen_ub["${UBOOT_PACKAGE}|${UBOOT_RULES_TARGET}"]="${board}"
+              fi
           done
 
           if [ -z "${build_entries}" ]; then
@@ -90,11 +98,18 @@ jobs:
           for s in "${!seen_s[@]}"; do
               kernel_entries+="{\"suite\":\"${s}\"},"
           done
+          # u-boot is per (package, target) pair: one build covers all boards sharing that pair.
+          uboot_entries=""
+          for k in "${!seen_ub[@]}"; do
+              pkg="${k%%|*}"; target="${k##*|}"; rep_board="${seen_ub[$k]}"
+              uboot_entries+="{\"uboot_package\":\"${pkg}\",\"uboot_target\":\"${target}\",\"board\":\"${rep_board}\"},"
+          done
 
           {
               echo "build_matrix={\"include\":[${build_entries%,}]}"
               echo "rootfs_matrix={\"include\":[${rootfs_entries%,}]}"
               echo "kernel_matrix={\"include\":[${kernel_entries%,}]}"
+              echo "uboot_matrix={\"include\":[${uboot_entries%,}]}"
           } >> "$GITHUB_OUTPUT"
 
   kernel:
@@ -166,9 +181,76 @@ jobs:
           S3_BUCKET: ${{ secrets.S3_BUCKET }}
         run: ./scripts/ci-s3.sh put build "ci/${{ github.run_id }}/kernel/${{ matrix.suite }}" 'linux-*.deb'
 
+  uboot:
+    runs-on: [self-hosted, ARM64, RK1]
+    name: Build u-boot
+    needs: [config]
+    strategy:
+      matrix: ${{ fromJson(needs.config.outputs.uboot_matrix) }}
+    steps:
+      - name: Reset workspace
+        shell: bash
+        run: sudo rm -rf ./build ./images || true
+
+      - name: Checkout code
+        uses: actions/checkout@v7.0.0
+
+      - name: Checkout LFS
+        shell: bash
+        run: git lfs fetch && git lfs checkout
+
+      - name: Resolve u-boot cache key
+        id: ubkey
+        shell: bash
+        run: |
+          # Key on content hash of u-boot package inputs: upstream pin, patches, rules, rkbin blobs.
+          sha=$(find packages/${{ matrix.uboot_package }}/debian -type f | sort | xargs sha256sum | sha256sum | cut -c1-12)
+          echo "key=cache/uboot/${{ matrix.uboot_package }}/${{ matrix.uboot_target }}/${sha}" >> "$GITHUB_OUTPUT"
+          echo "u-boot cache key: cache/uboot/${{ matrix.uboot_package }}/${{ matrix.uboot_target }}/${sha}"
+
+      - name: Restore u-boot cache (S3)
+        id: ubc
+        shell: bash
+        env:
+          S3_HOST: ${{ secrets.S3_HOST }}
+          S3_CLIENT_ID: ${{ secrets.S3_CLIENT_ID }}
+          S3_CLIENT_SECRET: ${{ secrets.S3_CLIENT_SECRET }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          ./scripts/ci-s3.sh get "${{ steps.ubkey.outputs.key }}" build
+          if compgen -G "build/u-boot-*.deb" >/dev/null; then
+            echo "hit=true" >> "$GITHUB_OUTPUT"; echo "u-boot cache HIT — skipping compile"
+          else
+            echo "hit=false" >> "$GITHUB_OUTPUT"; echo "u-boot cache MISS — compiling"
+          fi
+
+      - name: Compile u-boot
+        if: steps.ubc.outputs.hit != 'true'
+        shell: bash
+        run: sudo ./build.sh --board=${{ matrix.board }} --uboot-only
+
+      - name: Save u-boot cache (S3)
+        if: steps.ubc.outputs.hit != 'true'
+        shell: bash
+        env:
+          S3_HOST: ${{ secrets.S3_HOST }}
+          S3_CLIENT_ID: ${{ secrets.S3_CLIENT_ID }}
+          S3_CLIENT_SECRET: ${{ secrets.S3_CLIENT_SECRET }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: ./scripts/ci-s3.sh put build "${{ steps.ubkey.outputs.key }}" 'u-boot-*.deb'
+
+      - name: Publish u-boot to S3 (CI handoff)
+        shell: bash
+        env:
+          S3_HOST: ${{ secrets.S3_HOST }}
+          S3_CLIENT_ID: ${{ secrets.S3_CLIENT_ID }}
+          S3_CLIENT_SECRET: ${{ secrets.S3_CLIENT_SECRET }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: ./scripts/ci-s3.sh put build "ci/${{ github.run_id }}/uboot/${{ matrix.uboot_package }}/${{ matrix.uboot_target }}" 'u-boot-*.deb'
+
   build:
     runs-on: [self-hosted, ARM64, RK1]
-    needs: [config, kernel]
+    needs: [config, kernel, uboot]
     name: Build image
     strategy:
       matrix: ${{ fromJson(needs.config.outputs.build_matrix) }}
@@ -207,6 +289,19 @@ jobs:
         run: |
           ./scripts/ci-s3.sh get "ci/${{ github.run_id }}/kernel/${{ matrix.suite }}" build
           compgen -G "build/linux-image-*.deb" >/dev/null || { echo "ERROR: kernel handoff missing from S3"; exit 1; }
+
+      - name: Fetch u-boot from S3 (CI handoff)
+        shell: bash
+        env:
+          S3_HOST: ${{ secrets.S3_HOST }}
+          S3_CLIENT_ID: ${{ secrets.S3_CLIENT_ID }}
+          S3_CLIENT_SECRET: ${{ secrets.S3_CLIENT_SECRET }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          # shellcheck disable=SC1090
+          source config/boards/${{ matrix.board }}.sh
+          ./scripts/ci-s3.sh get "ci/${{ github.run_id }}/uboot/${UBOOT_PACKAGE}/${UBOOT_RULES_TARGET}" build
+          compgen -G "build/u-boot-*.deb" >/dev/null || { echo "ERROR: u-boot handoff missing from S3"; exit 1; }
 
       - name: Build
         shell: bash
