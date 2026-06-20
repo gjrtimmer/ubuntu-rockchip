@@ -23,6 +23,37 @@ document.querySelectorAll(".tab-btn").forEach((btn) => {
   });
 });
 
+// Sponsor-before-download modal. Download cells are repainted in place, so the click
+// is captured via delegation on the stable #boards container.
+const ACK_KEY = "dl-ack";
+const hasAck = () => { try { return !!sessionStorage.getItem(ACK_KEY); } catch { return false; } };
+const setAck = () => { try { sessionStorage.setItem(ACK_KEY, "1"); } catch {} };
+
+function openSponsorModal(url) {
+  $("modal-continue").setAttribute("href", url);
+  $("sponsor-modal").hidden = false;
+}
+function closeSponsorModal() { $("sponsor-modal").hidden = true; }
+
+function wireSponsorModal() {
+  const modal = $("sponsor-modal");
+  if (!modal) return;
+  // Intercept the first Download click each visit (download anchors are <a class="btn">;
+  // the syncing/checking states are <span>, so they're ignored).
+  $("boards").addEventListener("click", (e) => {
+    const a = e.target.closest("a.btn");
+    if (!a || hasAck()) return;
+    e.preventDefault();
+    openSponsorModal(a.getAttribute("href"));
+  });
+  // Continue follows the anchor's href (the actual download) and won't nag again this visit.
+  $("modal-continue").addEventListener("click", () => { setAck(); closeSponsorModal(); });
+  $("modal-close").addEventListener("click", closeSponsorModal);
+  modal.addEventListener("click", (e) => { if (e.target === modal) closeSponsorModal(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !modal.hidden) closeSponsorModal(); });
+}
+wireSponsorModal();
+
 function fmtSize(bytes) {
   if (!bytes && bytes !== 0) return "";
   const u = ["B", "KiB", "MiB", "GiB"];

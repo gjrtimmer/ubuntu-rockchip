@@ -127,6 +127,22 @@
     </div>
   </footer>
 
+  <div id="sponsor-modal" class="modal-overlay" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <button class="modal-close" id="modal-close" type="button" aria-label="Close">&times;</button>
+      <div class="modal-emoji" aria-hidden="true">☕</div>
+      <h2 id="modal-title">Before you download…</h2>
+      <p>Ubuntu&nbsp;Rockchip images are built, tested and hosted on personal time and at personal
+        cost. If these builds save you time, please consider chipping in — it keeps the project
+        alive and the downloads free for everyone.</p>
+      <div class="modal-actions">
+        <a class="sponsor-btn" id="modal-bmc" href="https://www.buymeacoffee.com/gjrtimmer" target="_blank" rel="noopener">Buy me a coffee&nbsp;☕</a>
+        <a class="btn modal-continue" id="modal-continue" href="#">Continue to download →</a>
+      </div>
+      <p class="modal-note muted">Your download starts when you continue. We ask once per visit.</p>
+    </div>
+  </div>
+
   <script src="app.js"></script>
 </body>
 </html>

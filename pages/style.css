@@ -83,6 +83,19 @@ a{color:var(--orange)}
 .sponsor-btn:hover{filter:brightness(1.04);transform:translateY(-1px)}
 .sponsor-footnote{margin:8px 0 0}
 
+/* Sponsor modal */
+.modal-overlay{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(44,0,30,.55)}
+.modal-overlay[hidden]{display:none}
+.modal{position:relative;width:100%;max-width:440px;background:var(--card);border-radius:14px;padding:30px 26px 22px;text-align:center;box-shadow:0 14px 44px rgba(0,0,0,.32)}
+.modal-emoji{font-size:42px;line-height:1;margin-bottom:6px}
+.modal h2{margin:0 0 12px;font-size:21px}
+.modal p{margin:0;font-size:14px;line-height:1.55;color:var(--ink);text-align:left}
+.modal-close{position:absolute;top:8px;right:12px;background:none;border:0;padding:4px;font-size:26px;line-height:1;color:var(--muted);cursor:pointer}
+.modal-close:hover{color:var(--ink)}
+.modal-actions{display:flex;flex-direction:column;gap:10px;margin:20px 0 8px}
+.modal-actions .sponsor-btn,.modal-actions .btn{padding:12px 16px;font-size:15px;text-align:center}
+.modal-note{margin:6px 0 0;font-size:12px;text-align:center}
+
 /* Footer */
 .site-footer{border-top:1px solid var(--line);padding:24px 0 40px;font-size:14px;color:var(--muted)}
 
