@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Ubuntu Rockchip — Downloads</title>
-  <meta name="description" content="Download Ubuntu disk images for Rockchip ARM single-board computers.">
+  <title>Ubuntu Rockchip</title>
+  <meta name="description" content="Bootable Ubuntu images for Rockchip ARM single-board computers.">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -12,25 +12,98 @@
     <div class="wrap">
       <h1><span class="dot"></span> Ubuntu&nbsp;Rockchip</h1>
       <p class="tagline">Bootable Ubuntu images for Rockchip ARM single-board computers</p>
+    </div>
+  </header>
+
+  <nav class="tab-nav">
+    <div class="wrap">
+      <button class="tab-btn active" data-tab="info">Info</button>
+      <button class="tab-btn" data-tab="images">Images</button>
+    </div>
+  </nav>
+
+  <section id="info" class="tab-panel">
+    <div class="wrap">
+      <h2 class="section-title">About</h2>
+      <p>Ubuntu Rockchip provides bootable Ubuntu disk images for Rockchip ARM single-board computers (SBCs).
+        It is a maintained fork of <a href="https://github.com/Joshua-Riek/ubuntu-rockchip">Joshua-Riek/ubuntu-rockchip</a>
+        (upstream is now a read-only archive) — actively maintained with fixes and new board support.</p>
+
+      <div class="info-grid">
+        <div class="info-card">
+          <h3>Supported SoCs</h3>
+          <ul>
+            <li>RK3588 / RK3588S / RK3588S2</li>
+            <li>RK3576</li>
+            <li>RK3566</li>
+          </ul>
+        </div>
+        <div class="info-card">
+          <h3>Ubuntu Releases</h3>
+          <ul>
+            <li>Ubuntu 22.04 LTS (Jammy Jellyfish)</li>
+            <li>Ubuntu 24.04 LTS (Noble Numbat)</li>
+          </ul>
+          <p class="muted small">LTS only — interim releases EOL in 9 months.</p>
+        </div>
+        <div class="info-card">
+          <h3>Flavors</h3>
+          <ul>
+            <li>Server — minimal, SSH-ready</li>
+            <li>Desktop — full Ubuntu desktop</li>
+          </ul>
+        </div>
+        <div class="info-card">
+          <h3>Boards</h3>
+          <p>31 boards across multiple makers including Orange Pi, Radxa, Turing, Mixtile, and more.</p>
+        </div>
+      </div>
+
+      <h2 class="section-title">Getting Started</h2>
+      <ol class="steps">
+        <li>Switch to the <strong>Images</strong> tab and find your board.</li>
+        <li>Download the <code>.img.xz</code> for your Ubuntu release and flavor.</li>
+        <li>Verify the listed SHA-256 checksum.</li>
+        <li>Flash with <code>xzcat image.img.xz | sudo dd of=/dev/sdX bs=4M status=progress</code>
+            or use <a href="https://etcher.balena.io/">balenaEtcher</a>.</li>
+        <li>Insert into your board, power on — cloud-init handles the first boot.</li>
+      </ol>
+
+      <h2 class="section-title">Build Cadence</h2>
+      <p>Images are built from a monthly refreshed rootfs (tagged <code>YYYYMM</code>) combined with
+        the latest pinned kernel and U-Boot packages. All released images are kept indefinitely.</p>
+
+      <h2 class="section-title">Links</h2>
+      <ul class="link-list">
+        <li><a href="https://github.com/gjrtimmer/ubuntu-rockchip">GitHub — gjrtimmer/ubuntu-rockchip</a></li>
+        <li><a href="https://github.com/gjrtimmer/ubuntu-rockchip/issues">Issues &amp; feature requests</a></li>
+        <li><a href="https://github.com/gjrtimmer/ubuntu-rockchip/releases">Releases</a></li>
+        <li><a href="https://github.com/gjrtimmer/ubuntu-rockchip/wiki">Wiki &amp; documentation</a></li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="images" class="tab-panel" hidden>
+    <div class="wrap">
       <p class="release-line" id="release-line" hidden>
         Latest release <strong id="release-version">—</strong>
         <span id="release-generated" class="muted"></span>
       </p>
+
+      <div id="sync-banner" class="sync-banner"></div>
+
+      <section class="controls" id="controls" hidden>
+        <input type="search" id="search" placeholder="Search board, SoC, maker…" autocomplete="off" aria-label="Search">
+        <select id="filter-maker" aria-label="Filter by maker"><option value="">All makers</option></select>
+        <select id="filter-soc" aria-label="Filter by SoC"><option value="">All SoCs</option></select>
+        <select id="filter-suite" aria-label="Filter by Ubuntu release"><option value="">All releases</option></select>
+      </section>
+
+      <p id="status" class="status">Loading available images…</p>
+
+      <div id="boards" class="boards"></div>
     </div>
-  </header>
-
-  <main class="wrap">
-    <section class="controls" id="controls" hidden>
-      <input type="search" id="search" placeholder="Search board, SoC, maker…" autocomplete="off" aria-label="Search">
-      <select id="filter-maker" aria-label="Filter by maker"><option value="">All makers</option></select>
-      <select id="filter-soc" aria-label="Filter by SoC"><option value="">All SoCs</option></select>
-      <select id="filter-suite" aria-label="Filter by Ubuntu release"><option value="">All releases</option></select>
-    </section>
-
-    <p id="status" class="status">Loading available images…</p>
-
-    <div id="boards" class="boards"></div>
-  </main>
+  </section>
 
   <footer class="site-footer">
     <div class="wrap">

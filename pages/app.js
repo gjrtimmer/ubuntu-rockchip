@@ -13,6 +13,16 @@ let MANIFEST = {};
 const AVAIL = new Map();      // url -> "available" | "syncing" (undefined = not checked yet)
 let pollTimer = null;
 
+// Tab navigation
+document.querySelectorAll(".tab-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    const tab = btn.dataset.tab;
+    document.querySelectorAll(".tab-panel").forEach((p) => { p.hidden = p.id !== tab; });
+  });
+});
+
 function fmtSize(bytes) {
   if (!bytes && bytes !== 0) return "";
   const u = ["B", "KiB", "MiB", "GiB"];
@@ -162,15 +172,6 @@ function render() {
   }
 }
 
-function ensureBanner() {
-  if ($("sync-banner")) return;
-  const main = document.querySelector("main.wrap") || document.body;
-  const b = document.createElement("div");
-  b.id = "sync-banner";
-  b.className = "sync-banner";
-  main.insertBefore(b, main.firstChild);
-}
-
 function init(manifest) {
   MANIFEST = manifest;
   IMAGES = manifest.images || [];
@@ -182,7 +183,6 @@ function init(manifest) {
   fillSelect($("filter-suite"), uniqueSorted(IMAGES.map((i) => i.suite)));
   $("controls").hidden = false;
   for (const el of ["search", "filter-maker", "filter-soc", "filter-suite"]) $(el).addEventListener("input", render);
-  ensureBanner();
   render();
   updateBanner();
   refresh();                                   // kick the first availability sweep
