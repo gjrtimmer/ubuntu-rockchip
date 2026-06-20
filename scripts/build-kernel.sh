@@ -9,6 +9,8 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 cd "$(dirname -- "$(readlink -f -- "$0")")" && cd ..
+# shellcheck source=scripts/lib/retry.sh
+source scripts/lib/retry.sh
 mkdir -p build && cd build
 
 if [[ -z ${SUITE} ]]; then
@@ -21,13 +23,7 @@ source "../config/suites/${SUITE}.sh"
 
 # Clone the kernel repo
 if ! git -C linux-rockchip pull 2>/dev/null; then
-    for attempt in 1 2 3; do
-        rm -rf linux-rockchip
-        git clone --progress -b "${KERNEL_BRANCH}" "${KERNEL_REPO}" linux-rockchip --depth=2 && break
-        [ "${attempt}" -lt 3 ] || { echo "Error: git clone failed after 3 attempts"; exit 1; }
-        echo "git clone attempt ${attempt}/3 failed — retrying in 15s"
-        sleep 15
-    done
+    git_clone_retry "${KERNEL_REPO}" linux-rockchip --progress -b "${KERNEL_BRANCH}" --depth=2
 fi
 
 cd linux-rockchip

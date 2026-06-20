@@ -9,6 +9,8 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 cd "$(dirname -- "$(readlink -f -- "$0")")" && cd ..
+# shellcheck source=scripts/lib/retry.sh
+source scripts/lib/retry.sh
 mkdir -p build && cd build
 
 if [[ -z ${SUITE} ]]; then
@@ -38,13 +40,7 @@ tmp_dir=$(mktemp -d)
 cd "${tmp_dir}" || exit 1
 
 # Clone the livecd rootfs fork
-for attempt in 1 2 3; do
-    rm -rf livecd-rootfs
-    git clone https://github.com/Joshua-Riek/livecd-rootfs && break
-    [ "${attempt}" -lt 3 ] || { echo "Error: git clone failed after 3 attempts"; exit 1; }
-    echo "git clone attempt ${attempt}/3 failed — retrying in 15s"
-    sleep 15
-done
+git_clone_retry "https://github.com/Joshua-Riek/livecd-rootfs" livecd-rootfs
 cd livecd-rootfs || exit 1
 
 # Install build deps (bounded retries + timeout so a stalled apt-cacher-ng / tunnel fetch

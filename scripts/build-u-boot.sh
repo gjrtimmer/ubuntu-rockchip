@@ -9,6 +9,8 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 cd "$(dirname -- "$(readlink -f -- "$0")")" && cd ..
+# shellcheck source=scripts/lib/retry.sh
+source scripts/lib/retry.sh
 mkdir -p build && cd build
 
 if [[ -z ${UBOOT_PACKAGE} ]]; then
@@ -19,13 +21,7 @@ fi
 if [ ! -d "${UBOOT_PACKAGE}" ]; then
     # shellcheck source=/dev/null
     source ../packages/"${UBOOT_PACKAGE}"/debian/upstream
-    for attempt in 1 2 3; do
-        rm -rf "${UBOOT_PACKAGE}"
-        git clone --single-branch --progress -b "${BRANCH}" "${GIT}" "${UBOOT_PACKAGE}" && break
-        [ "${attempt}" -lt 3 ] || { echo "Error: git clone failed after 3 attempts"; exit 1; }
-        echo "git clone attempt ${attempt}/3 failed — retrying in 15s"
-        sleep 15
-    done
+    git_clone_retry "${GIT}" "${UBOOT_PACKAGE}" --single-branch --progress -b "${BRANCH}"
     git -C "${UBOOT_PACKAGE}" checkout "${COMMIT}"
     cp -r ../packages/"${UBOOT_PACKAGE}"/debian "${UBOOT_PACKAGE}"
 fi
