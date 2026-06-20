@@ -107,7 +107,7 @@ jobs:
       - name: Resolve rootfs cache key
         id: rfkey
         run: |
-          livecd_sha=$(git ls-remote "https://github.com/Joshua-Riek/livecd-rootfs" HEAD | awk 'NR==1{print substr($1,1,12)}')
+          livecd_sha=$(git ls-remote "https://github.com/Joshua-Riek/livecd-rootfs" HEAD 2>/dev/null | awk 'NR==1{print substr($1,1,12)}' || true)
           content_sha=$(cat config/suites/${{ matrix.suite }}.sh config/flavors/${{ matrix.flavor }}.sh scripts/build-rootfs.sh | sha256sum | cut -c1-12)
           month=$(date -u +%Y%m)
           echo "key=cache/rootfs/${{ matrix.suite }}/${{ matrix.flavor }}/${month}/${livecd_sha:-unknown}-${content_sha}" >> "$GITHUB_OUTPUT"
@@ -181,7 +181,7 @@ jobs:
           # Key the cache on the kernel source commit so a source update auto-invalidates it.
           # shellcheck disable=SC1090
           source config/suites/${{ matrix.suite }}.sh
-          sha="$(git ls-remote "${KERNEL_REPO}" "refs/heads/${KERNEL_BRANCH}" | awk 'NR==1{print substr($1,1,12)}')"
+          sha="$(git ls-remote "${KERNEL_REPO}" "refs/heads/${KERNEL_BRANCH}" 2>/dev/null | awk 'NR==1{print substr($1,1,12)}' || true)"
           echo "key=cache/kernel/${{ matrix.suite }}/${sha:-unknown}" >> "$GITHUB_OUTPUT"
           echo "kernel cache key: cache/kernel/${{ matrix.suite }}/${sha:-unknown}"
 

@@ -137,8 +137,8 @@ tar -xpJf "${rootfs_tar}" -C ${chroot_dir}
 setup_mountpoint $chroot_dir
 
 # Update packages
-chroot $chroot_dir apt-get update
-chroot $chroot_dir apt-get -y upgrade
+chroot $chroot_dir apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=60 update
+chroot $chroot_dir apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=60 -y upgrade
     
 # Run config hook to handle board specific changes
 if [[ $(type -t config_image_hook__"${BOARD}") == function ]]; then

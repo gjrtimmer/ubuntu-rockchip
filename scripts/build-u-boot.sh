@@ -19,7 +19,13 @@ fi
 if [ ! -d "${UBOOT_PACKAGE}" ]; then
     # shellcheck source=/dev/null
     source ../packages/"${UBOOT_PACKAGE}"/debian/upstream
-    git clone --single-branch --progress -b "${BRANCH}" "${GIT}" "${UBOOT_PACKAGE}"
+    for attempt in 1 2 3; do
+        rm -rf "${UBOOT_PACKAGE}"
+        git clone --single-branch --progress -b "${BRANCH}" "${GIT}" "${UBOOT_PACKAGE}" && break
+        [ "${attempt}" -lt 3 ] || { echo "Error: git clone failed after 3 attempts"; exit 1; }
+        echo "git clone attempt ${attempt}/3 failed — retrying in 15s"
+        sleep 15
+    done
     git -C "${UBOOT_PACKAGE}" checkout "${COMMIT}"
     cp -r ../packages/"${UBOOT_PACKAGE}"/debian "${UBOOT_PACKAGE}"
 fi
