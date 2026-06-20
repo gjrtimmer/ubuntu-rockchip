@@ -13,6 +13,7 @@ on:
         type: choice
         options:
           - all
+          - jammy
           - noble
       flavor:
         description: "Flavor"
@@ -48,8 +49,8 @@ jobs:
           IN_SUITE: ${{ inputs.suite }}
           IN_FLAVOR: ${{ inputs.flavor }}
         run: |
-          # build.yml produces noble (24.04) images only; the suite input filters within this.
-          SUITES=(noble)
+          # build.yml produces LTS images (jammy 22.04 + noble 24.04); the suite input filters within this.
+          SUITES=(jammy noble)
           FLAVORS=(desktop server)
 
           want() { [ "$1" = "all" ] || [ "$1" = "$2" ]; }

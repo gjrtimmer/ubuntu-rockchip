@@ -37,7 +37,7 @@ jobs:
                 # shellcheck disable=SC1090
                 source "${file}"
                 for suite in "${COMPATIBLE_SUITES[@]}"; do
-                    [ "${suite}" = "noble" ] || continue   # release noble (24.04) only
+                    case "${suite}" in jammy|noble) ;; *) continue ;; esac   # release LTS only (jammy + noble)
                     for flavor in "${COMPATIBLE_FLAVORS[@]}"; do
                     build_matrix+="{\"board\":\"$(basename "${file%.sh}")\",\"suite\":\"${suite}\",\"flavor\":\"${flavor}\"},"
                     done
@@ -50,7 +50,7 @@ jobs:
         run: |
             rootfs_matrix=""
             for suite in config/suites/*; do
-                [ "$(basename "${suite%.sh}")" = "noble" ] || continue   # release noble (24.04) only
+                case "$(basename "${suite%.sh}")" in jammy|noble) ;; *) continue ;; esac   # release LTS only (jammy + noble)
                 for flavor in config/flavors/*; do
                     rootfs_matrix+="{\"suite\":\"$(basename "${suite%.sh}")\",\"flavor\":\"$(basename "${flavor%.sh}")\"},"
                 done

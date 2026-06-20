@@ -28,8 +28,8 @@ jobs:
       - name: Generate matrices
         id: gen
         run: |
-          # Nightly builds the full board sweep for noble (24.04) — no input filtering.
-          SUITES=(noble)
+          # Nightly builds the full board sweep for both LTS suites (jammy 22.04 + noble 24.04).
+          SUITES=(jammy noble)
           FLAVORS=(desktop server)
 
           build_entries=""
