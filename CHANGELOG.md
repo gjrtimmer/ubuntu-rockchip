@@ -15,8 +15,6 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### ⛰️ Features
 
-- Add the NanoPi R6 to the oracular suite ([6b8b81a](https://github.com/gjrtimmer/ubuntu-rockchip/commit/6b8b81a9c4ffad45c8428987c1b40c70c1897dc2))
-
 ### 🐛 Bug Fixes
 
 - Correct help list with flavors ([29970e7](https://github.com/gjrtimmer/ubuntu-rockchip/commit/29970e7d8d0a1a8986618b21591c47efa4e71fb5))
@@ -71,7 +69,7 @@ project adheres to [Semantic Versioning](https://semver.org/).
 - Use dynamic matrix for nightly builds ([be74529](https://github.com/gjrtimmer/ubuntu-rockchip/commit/be74529adb04bc22eb233f3d2acb84e3329a6ee9))
 - Build all suites for nightly builds ([63c68a5](https://github.com/gjrtimmer/ubuntu-rockchip/commit/63c68a5ff3dbc618bf12f255eed8432f50175692))
 - Set UART console output for the Turing RK1 on Ubuntu 24.10 ([0013909](https://github.com/gjrtimmer/ubuntu-rockchip/commit/001390997110706133b7a0d5800adfcfd438d6d0))
-- Use dynamic matrix for oracular building ([7de81d6](https://github.com/gjrtimmer/ubuntu-rockchip/commit/7de81d62521627d23391094f750856640cf8f3a9))
+
 - Move kernel flavor and extra ppas into suite config files ([58da196](https://github.com/gjrtimmer/ubuntu-rockchip/commit/58da196a70a9aa09991fd1df5f55e8fe8b624887))
 - Move extra packages to the meta packages ([2ddb365](https://github.com/gjrtimmer/ubuntu-rockchip/commit/2ddb3650bd026deaf328e0c414d3a1d96b5b3472))
 
