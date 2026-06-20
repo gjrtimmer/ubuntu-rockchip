@@ -54,6 +54,19 @@ function wireSponsorModal() {
 }
 wireSponsorModal();
 
+// Rotate the sponsor banner through its reasons with a crossfade so visitors see why support helps.
+function rotateSponsorMessages() {
+  const msgs = document.querySelectorAll(".sponsor-msg");
+  if (msgs.length < 2) return;
+  let i = 0;
+  setInterval(() => {
+    msgs[i].classList.remove("active");
+    i = (i + 1) % msgs.length;
+    msgs[i].classList.add("active");
+  }, 5000);
+}
+rotateSponsorMessages();
+
 function fmtSize(bytes) {
   if (!bytes && bytes !== 0) return "";
   const u = ["B", "KiB", "MiB", "GiB"];
