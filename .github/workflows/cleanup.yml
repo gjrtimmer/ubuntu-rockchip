@@ -1,9 +1,11 @@
 name: Cleanup
-run-name: Prune S3 CI handoffs
+run-name: Prune S3 CI handoffs, dated rootfs and dev build images
 
-# Dedicated scheduled cleanup of the S3 CI-handoff prefix (ci/<run_id>/), instead of
-# bolting a cleanup job onto every build pipeline. Runs daily and prunes anything older
-# than max_age, so the prefix self-cleans even during quiet periods.
+# Dedicated scheduled cleanup of the S3 transient prefixes (ci/<run_id>/ handoffs,
+# rootfs/ dated copies, build/ dev disk images), instead of bolting a cleanup job onto
+# every build pipeline. Runs daily so the prefixes self-clean even during quiet periods.
+# Retention: ci 90d, rootfs 90d (3 months), build 60d (2 months); cache/ and release
+# images/ are never pruned.
 on:
   schedule:
     - cron: "30 3 * * *"
@@ -34,7 +36,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7.0.0
 
-      - name: Prune ci/ handoffs and dated rootfs
+      - name: Prune ci/ handoffs, dated rootfs and dev build images
         shell: bash
         env:
           S3_HOST: ${{ secrets.S3_HOST }}
@@ -46,3 +48,6 @@ jobs:
           ./scripts/ci-s3.sh prune ci "${age}"
           # dated rootfs copies kept 3 months; latest.tar.xz is rewritten monthly so it stays fresh
           ./scripts/ci-s3.sh prune rootfs 90d
+          # dev /build channel disk images (build/<ver>/<board>/<image>) kept 2 months;
+          # release images under images/ + manifest are never pruned (kept forever)
+          ./scripts/ci-s3.sh prune build 60d
