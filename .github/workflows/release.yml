@@ -21,6 +21,7 @@ jobs:
       rootfs_matrix: ${{ steps.gen.outputs.rootfs_matrix }}
       kernel_matrix: ${{ steps.gen.outputs.kernel_matrix }}
       uboot_matrix: ${{ steps.gen.outputs.uboot_matrix }}
+      base_matrix: ${{ steps.gen.outputs.base_matrix }}
     steps:
       - name: Reset workspace
         shell: bash
@@ -44,14 +45,18 @@ jobs:
           SUITES=(jammy noble)
           FLAVORS=(desktop server)
 
+          # resolve_base_group: maps a board's BOARD_SOC to its configured-base group (if any).
+          source scripts/lib/base.sh
+
           build_entries=""
-          declare -A seen_sf seen_s seen_ub
+          declare -A seen_sf seen_s seen_ub seen_base
           for file in config/boards/*.sh; do
               board="$(basename "${file%.sh}")"
               COMPATIBLE_SUITES=(); COMPATIBLE_FLAVORS=()
-              UBOOT_PACKAGE=""; UBOOT_RULES_TARGET=""
+              UBOOT_PACKAGE=""; UBOOT_RULES_TARGET=""; BOARD_SOC=""
               # shellcheck disable=SC1090
               source "${file}"
+              base_group="$(resolve_base_group "${BOARD_SOC}")"
               board_matched=0
               for suite in "${SUITES[@]}"; do
                   [[ " ${COMPATIBLE_SUITES[*]} " == *" ${suite} "* ]] || continue
@@ -60,6 +65,9 @@ jobs:
                       build_entries+="{\"board\":\"${board}\",\"suite\":\"${suite}\",\"flavor\":\"${flavor}\"},"
                       seen_sf["${suite}|${flavor}"]=1
                       seen_s["${suite}"]=1
+                      if [[ -n "${base_group}" && -z "${seen_base[${suite}|${flavor}|${base_group}]+x}" ]]; then
+                          seen_base["${suite}|${flavor}|${base_group}"]="${board}"
+                      fi
                       board_matched=1
                   done
               done
@@ -88,12 +96,19 @@ jobs:
               pkg="${k%%|*}"; target="${k##*|}"; rep_board="${seen_ub[$k]}"
               uboot_entries+="{\"uboot_package\":\"${pkg}\",\"uboot_target\":\"${target}\",\"board\":\"${rep_board}\"},"
           done
+          # configured base is per (suite, flavor, group): one build covers all boards in that group.
+          base_entries=""
+          for k in "${!seen_base[@]}"; do
+              b_suite="${k%%|*}"; b_rest="${k#*|}"; b_flavor="${b_rest%%|*}"; b_group="${b_rest##*|}"; b_rep="${seen_base[$k]}"
+              base_entries+="{\"suite\":\"${b_suite}\",\"flavor\":\"${b_flavor}\",\"group\":\"${b_group}\",\"board\":\"${b_rep}\"},"
+          done
 
           {
               echo "build_matrix={\"include\":[${build_entries%,}]}"
               echo "rootfs_matrix={\"include\":[${rootfs_entries%,}]}"
               echo "kernel_matrix={\"include\":[${kernel_entries%,}]}"
               echo "uboot_matrix={\"include\":[${uboot_entries%,}]}"
+              echo "base_matrix={\"include\":[${base_entries%,}]}"
           } >> "$GITHUB_OUTPUT"
 
   rootfs:
@@ -337,9 +352,128 @@ jobs:
           S3_BUCKET: ${{ secrets.S3_BUCKET }}
         run: ./scripts/ci-s3.sh put build "ci/${{ github.run_id }}/uboot/${{ matrix.uboot_package }}/${{ matrix.uboot_target }}" 'u-boot-*.deb'
 
+  base:
+    runs-on: [self-hosted, ARM64, RK1]
+    needs: [config, rootfs, kernel]
+    name: Build base
+    strategy:
+        matrix: ${{ fromJson(needs.config.outputs.base_matrix) }}
+    steps:
+      - name: Reset workspace
+        shell: bash
+        run: |
+          # Detach any chroot mounts a cancelled build left behind (esp. the kernel-global
+          # devtmpfs at build/rootfs-base/dev) BEFORE deleting. --one-file-system is the hard
+          # guard: rm stops at any mount boundary, so it can never recurse into the live
+          # devtmpfs and unlink host /dev/null.
+          for m in $(mount | awk '{print $3}' | grep "$(pwd)/build" | sort -r); do
+            sudo umount -lf "$m" 2>/dev/null || true
+          done
+          sudo rm -rf --one-file-system ./build ./images || true
+
+      - name: Checkout code
+        uses: actions/checkout@v7.0.0
+
+      - name: Checkout LFS
+        shell: bash
+        run: |
+          source scripts/lib/retry.sh
+          git_lfs_retry
+
+      - name: Set environment variables
+        id: vars
+        run: |
+          source config/suites/${{ matrix.suite }}.sh
+          echo "suite_version=$RELASE_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Fetch rootfs from S3 (CI handoff)
+        shell: bash
+        env:
+          S3_HOST: ${{ secrets.S3_HOST }}
+          S3_CLIENT_ID: ${{ secrets.S3_CLIENT_ID }}
+          S3_CLIENT_SECRET: ${{ secrets.S3_CLIENT_SECRET }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          ver=${{ steps.vars.outputs.suite_version }}
+          ./scripts/ci-s3.sh get "ci/${{ github.run_id }}/rootfs/${ver}-${{ matrix.flavor }}" build
+          compgen -G "build/ubuntu-*-preinstalled-${{ matrix.flavor }}-arm64.rootfs.tar.xz" >/dev/null || { echo "ERROR: rootfs handoff missing from S3"; exit 1; }
+
+      - name: Fetch kernel from S3 (CI handoff)
+        shell: bash
+        env:
+          S3_HOST: ${{ secrets.S3_HOST }}
+          S3_CLIENT_ID: ${{ secrets.S3_CLIENT_ID }}
+          S3_CLIENT_SECRET: ${{ secrets.S3_CLIENT_SECRET }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          ./scripts/ci-s3.sh get "ci/${{ github.run_id }}/kernel/${{ matrix.suite }}" build
+          compgen -G "build/linux-image-*.deb" >/dev/null || { echo "ERROR: kernel handoff missing from S3"; exit 1; }
+
+      - name: Resolve base cache key
+        id: bkey
+        shell: bash
+        run: |
+          # Key on everything the base is built from: kernel source commit, livecd-rootfs
+          # commit, the monthly rootfs snapshot, and the base recipe scripts/config.
+          # shellcheck disable=SC1090
+          source config/suites/${{ matrix.suite }}.sh
+          source scripts/lib/retry.sh
+          kernel_sha=$(git_ls_remote_sha "${KERNEL_REPO}" "refs/heads/${KERNEL_BRANCH}")
+          livecd_sha=$(git_ls_remote_sha "https://github.com/Joshua-Riek/livecd-rootfs" "HEAD")
+          recipe_sha=$(cat config/bases/${{ matrix.group }}.sh scripts/build-base.sh scripts/lib/chroot.sh config/suites/${{ matrix.suite }}.sh config/flavors/${{ matrix.flavor }}.sh scripts/build-rootfs.sh | sha256sum | cut -c1-12)
+          month=$(date -u +%Y%m)
+          echo "key=cache/base/${{ matrix.group }}/${{ matrix.suite }}/${{ matrix.flavor }}/${month}/${kernel_sha:-x}-${livecd_sha:-x}-${recipe_sha}" >> "$GITHUB_OUTPUT"
+          echo "base cache key: cache/base/${{ matrix.group }}/${{ matrix.suite }}/${{ matrix.flavor }}/${month}/${kernel_sha:-x}-${livecd_sha:-x}-${recipe_sha}"
+
+      - name: Restore base cache (S3)
+        id: bc
+        shell: bash
+        env:
+          S3_HOST: ${{ secrets.S3_HOST }}
+          S3_CLIENT_ID: ${{ secrets.S3_CLIENT_ID }}
+          S3_CLIENT_SECRET: ${{ secrets.S3_CLIENT_SECRET }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          ./scripts/ci-s3.sh get "${{ steps.bkey.outputs.key }}" build/base
+          if compgen -G "build/base/ubuntu-*-preinstalled-${{ matrix.flavor }}-arm64.base.tar.xz" >/dev/null; then
+            echo "hit=true" >> "$GITHUB_OUTPUT"; echo "base cache HIT — skipping build"
+          else
+            echo "hit=false" >> "$GITHUB_OUTPUT"; echo "base cache MISS — building"
+          fi
+
+      - name: Build base
+        if: steps.bc.outputs.hit != 'true'
+        shell: bash
+        run: |
+          source scripts/lib/retry.sh
+          APT_PROXY="${{ vars.APT_PROXY }}"
+          with_apt_proxy ./build.sh --base-only --board=${{ matrix.board }} --suite=${{ matrix.suite }} --flavor=${{ matrix.flavor }}
+
+      - name: Save base cache (S3)
+        if: steps.bc.outputs.hit != 'true'
+        shell: bash
+        env:
+          S3_HOST: ${{ secrets.S3_HOST }}
+          S3_CLIENT_ID: ${{ secrets.S3_CLIENT_ID }}
+          S3_CLIENT_SECRET: ${{ secrets.S3_CLIENT_SECRET }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: ./scripts/ci-s3.sh put build/base "${{ steps.bkey.outputs.key }}" 'ubuntu-*.base.tar.xz'
+
+      - name: Publish base to S3 (CI handoff)
+        shell: bash
+        env:
+          S3_HOST: ${{ secrets.S3_HOST }}
+          S3_CLIENT_ID: ${{ secrets.S3_CLIENT_ID }}
+          S3_CLIENT_SECRET: ${{ secrets.S3_CLIENT_SECRET }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: ./scripts/ci-s3.sh put build/base "ci/${{ github.run_id }}/base/${{ matrix.group }}/${{ matrix.suite }}-${{ matrix.flavor }}" 'ubuntu-*.base.tar.xz'
+
   build:
     runs-on: [self-hosted, ARM64, RK1]
-    needs: [config, rootfs, kernel, uboot]
+    needs: [config, rootfs, kernel, uboot, base]
+    # Run even when `base` is skipped (empty matrix for a non-RK3588-only sweep); a skipped
+    # dependency is not a failure. Still skips if any dependency actually failed.
+    if: ${{ !failure() && !cancelled() }}
     name: Build image
     strategy:
         matrix: ${{ fromJson(needs.config.outputs.build_matrix) }}
@@ -400,6 +534,26 @@ jobs:
           source config/boards/${{ matrix.board }}.sh
           ./scripts/ci-s3.sh get "ci/${{ github.run_id }}/uboot/${UBOOT_PACKAGE}/${UBOOT_RULES_TARGET}" build
           compgen -G "build/u-boot-*.deb" >/dev/null || { echo "ERROR: u-boot handoff missing from S3"; exit 1; }
+
+      - name: Fetch configured base from S3 (CI handoff)
+        shell: bash
+        env:
+          S3_HOST: ${{ secrets.S3_HOST }}
+          S3_CLIENT_ID: ${{ secrets.S3_CLIENT_ID }}
+          S3_CLIENT_SECRET: ${{ secrets.S3_CLIENT_SECRET }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          source scripts/lib/base.sh
+          # shellcheck disable=SC1090
+          source config/boards/${{ matrix.board }}.sh
+          group="$(resolve_base_group "${BOARD_SOC}")"
+          if [ -n "${group}" ]; then
+            ./scripts/ci-s3.sh get "ci/${{ github.run_id }}/base/${group}/${{ matrix.suite }}-${{ matrix.flavor }}" build/base
+            compgen -G "build/base/ubuntu-*-preinstalled-${{ matrix.flavor }}-arm64.base.tar.xz" >/dev/null || { echo "ERROR: base handoff missing for group ${group}"; exit 1; }
+            echo "using configured base (group ${group})"
+          else
+            echo "no base group for ${{ matrix.board }} (SoC ${BOARD_SOC}); building from rootfs"
+          fi
 
       - name: Build
         shell: bash
