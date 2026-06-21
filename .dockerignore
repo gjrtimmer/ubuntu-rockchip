@@ -1,0 +1,12 @@
+# The s3-promote-cleanup image (deploy/s3-promote-cleanup/image/Dockerfile) builds with
+# the repo root as context (it needs scripts/ + deploy/). Keep that context small by
+# excluding heavy/irrelevant paths. This file only affects builds whose context is the
+# repo root; the github-runner image uses its own context (ci/image/) and is unaffected.
+.git
+.work
+build
+images
+*.img
+*.img.xz
+*.deb
+*.tar.xz

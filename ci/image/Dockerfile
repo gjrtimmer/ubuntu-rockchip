@@ -3,7 +3,7 @@
 # Native arm64 GitHub Actions runner for gjrtimmer/ubuntu-rockchip image builds.
 #
 # Build + push for arm64 ONLY (no QEMU). The simplest path is to build it natively
-# on one of the RK1 nodes. See ../../scripts/build-runner-image.sh.
+# on one of the RK1 nodes. See ../../scripts/build-docker-images.sh.
 #
 #   <harbor-host>/rockchip/github-runner:arm64        (Harbor project: rockchip)
 #
