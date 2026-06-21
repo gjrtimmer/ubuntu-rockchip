@@ -20,6 +20,7 @@ Optional arguments:
   -ko, --kernel-only     only compile the kernel
   -uo, --uboot-only      only compile uboot
   -ro, --rootfs-only     only build rootfs
+  -bo, --base-only       only build the configured base (needs kernel + rootfs present)
   -l,  --launchpad       use kernel and uboot from launchpad repo
   -v,  --verbose         increase the verbosity of the bash script
 HEREDOC
@@ -72,6 +73,10 @@ while [ "$#" -gt 0 ]; do
             ;;
         -ro|--rootfs-only)
             export ROOTFS_ONLY=Y
+            shift
+            ;;
+        -bo|--base-only)
+            export BASE_ONLY=Y
             shift
             ;;
         -l|--launchpad)
@@ -203,6 +208,23 @@ if [ "${UBOOT_ONLY}" == "Y" ]; then
     exit 0
 fi
 
+if [ "${BASE_ONLY}" == "Y" ]; then
+    if [ -z "${SUITE}" ] || [ -z "${FLAVOR}" ] || [ -z "${BOARD}" ]; then
+        usage
+        exit 1
+    fi
+    # shellcheck source=scripts/lib/base.sh
+    source scripts/lib/base.sh
+    BASE_GROUP="$(resolve_base_group "${BOARD_SOC}")"
+    export BASE_GROUP
+    if [ -z "${BASE_GROUP}" ]; then
+        echo "Error: board ${BOARD} (SoC ${BOARD_SOC}) has no configured base group"
+        exit 1
+    fi
+    ./scripts/build-base.sh
+    exit 0
+fi
+
 # No board param passed
 if [ -z "${BOARD}" ] || [ -z "${SUITE}" ] || [ -z "${FLAVOR}" ]; then
     usage
@@ -225,6 +247,18 @@ fi
 
 # Create the root filesystem
 ./scripts/build-rootfs.sh
+
+# Build the configured base for this board's SoC group, if one applies and it has not
+# already been built. config-image.sh then auto-detects and consumes the base tar.
+# shellcheck source=scripts/lib/base.sh
+source scripts/lib/base.sh
+BASE_GROUP="$(resolve_base_group "${BOARD_SOC}")"
+export BASE_GROUP
+if [ -n "${BASE_GROUP}" ]; then
+    if [[ ! -e "$(find build/base -maxdepth 1 -name "ubuntu-*-preinstalled-${FLAVOR}-arm64.base.tar.xz" 2>/dev/null | sort | tail -n1)" ]]; then
+        ./scripts/build-base.sh
+    fi
+fi
 
 # Create the disk image
 ./scripts/config-image.sh
