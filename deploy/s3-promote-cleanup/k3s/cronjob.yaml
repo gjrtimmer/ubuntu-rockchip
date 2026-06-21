@@ -1,0 +1,48 @@
+# Auto-cleanup: every 15 min, delete CA objects verified-replicated to NL.
+# Creds (both sites) come from the single ExternalSecret in secrets.yaml; the image
+# entrypoint turns them into mc aliases.
+#
+# SAFE-BY-DEFAULT: ships as a DRY RUN (args: []) — logs "WOULD FREE" / "KEEP", deletes
+# nothing. After reading a run's logs, switch to deletion: args: ["--delete"]
+# (and optionally HARD_PURGE "1" for instant space reclaim).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: s3-promote-cleanup
+  namespace: storage
+spec:
+  schedule: "*/15 * * * *"          # bounds how long CA holds already-replicated data
+  concurrencyPolicy: Forbid         # never overlap runs
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: cleanup
+              image: docker.io/gjrtimmer/s3-promote-cleanup:arm64   # rolling tag from build-docker-images.sh
+              imagePullPolicy: Always
+              # DRY RUN. To enable deletion: args: ["--delete"]
+              args: []
+              env:
+                - name: HARD_PURGE
+                  value: "0"        # "1" = remove all versions now (instant reclaim; safe — verified on NL first)
+                - name: CAN_URL
+                  value: "http://minio.storage.svc:9000"
+                - name: NLD_URL
+                  value: "https://s3.timmertech.nl"
+              envFrom:
+                - secretRef:
+                    name: s3-promote-cleanup     # created by secrets.yaml (vault-shared)
+              volumeMounts:
+                - name: mc-config
+                  mountPath: /root/.mc           # entrypoint writes config.json here
+              resources:
+                requests: { cpu: "50m", memory: "64Mi" }
+                limits:   { cpu: "500m", memory: "256Mi" }
+          volumes:
+            - name: mc-config
+              emptyDir: {}
