@@ -59,10 +59,20 @@ remove_ca() {
 
 [ "${do_delete}" = "1" ] || echo "DRY RUN — no objects will be deleted. Re-run with --delete to act."
 
+# Fail loud if the SOURCE site/bucket is unreachable (auth / conn / region). The bucket
+# itself must exist — this is the one place a real credential/endpoint error surfaces.
+# (mc find on a *missing prefix* also exits non-zero, which under `set -e` + pipefail would
+# otherwise abort the whole run; proving the bucket here lets us treat that as just "empty".)
+mc ls "${SRC_ALIAS}/${BUCKET}/" >/dev/null || {
+  echo "ERROR: cannot list ${SRC_ALIAS}/${BUCKET} (auth/conn/region?)" >&2; exit 1; }
+
 for prefix in ${PREFIXES}; do
   src_base="${SRC_ALIAS}/${BUCKET}/${prefix}"
-  # mc find prints full object paths; tolerate an absent/empty prefix
-  mc find "${src_base}" 2>/dev/null | while IFS= read -r src; do
+  # A prefix with no objects makes `mc find` exit 1 ("Object does not exist"). Bucket
+  # reachability is already proven above, so that can only mean an empty/absent prefix.
+  found="$(mc find "${src_base}" 2>/dev/null || true)"
+  [ -n "${found}" ] || { echo "EMPTY      (nothing under ${prefix} on ${SRC_ALIAS})"; continue; }
+  printf '%s\n' "${found}" | while IFS= read -r src; do
     rel="${src#"${SRC_ALIAS}/${BUCKET}/"}"          # e.g. images/<ver>/<board>/<file>
     dst="${DST_ALIAS}/${BUCKET}/${rel}"
     ssize="$(obj_size "${src}")"
