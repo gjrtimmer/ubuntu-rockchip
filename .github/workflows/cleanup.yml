@@ -48,6 +48,7 @@ jobs:
           ./scripts/ci-s3.sh prune ci "${age}"
           # dated rootfs copies kept 3 months; latest.tar.xz is rewritten monthly so it stays fresh
           ./scripts/ci-s3.sh prune rootfs 90d
-          # dev /build channel disk images (build/<ver>/<board>/<image>) kept 2 months;
+          # dev /build channel disk images (build/<ver>/<board>/<image>) kept 2 months, aged by the
+          # YYYYMM in the filename (not S3 mtime, so a re-publish does not reset the clock);
           # release images under images/ + manifest are never pruned (kept forever)
-          ./scripts/ci-s3.sh prune build 60d
+          ./scripts/ci-s3.sh prune-month build 2

@@ -15,7 +15,8 @@
 # Usage:
 #   ci-s3.sh get <remote-prefix> <local-dest-dir>     # cache restore (tolerant: miss = no-op)
 #   ci-s3.sh put <local-src> <remote-prefix> [glob]   # cache save / publish (fails loud)
-#   ci-s3.sh prune <remote-prefix> <max-age>          # delete objects older than max-age (e.g. 7d)
+#   ci-s3.sh prune <remote-prefix> <max-age>          # delete objects older than max-age by S3 mtime (e.g. 7d)
+#   ci-s3.sh prune-month <remote-prefix> <keep-months># delete objects by YYYYMM in filename (keeps last <keep> months)
 #   ci-s3.sh cp <remote-src> <remote-dst>             # server-side copy within the bucket (atomic dst replace)
 set -euo pipefail
 
@@ -76,13 +77,32 @@ case "${verb}" in
     rclone delete "s3:${S3_BUCKET}/${prefix}" --min-age "${age}" --s3-no-check-bucket || true
     rclone rmdirs "s3:${S3_BUCKET}/${prefix}" --leave-root --s3-no-check-bucket || true
     ;;
+  prune-month)
+    # Age objects by the YYYYMM embedded in the FILENAME (ubuntu-<ver>-<YYYYMM>-preinstalled-...),
+    # NOT by S3 mtime — a re-published image must not reset its retention clock.
+    # Keeps the current month and the previous (keep_months-1) months; deletes anything whose
+    # filename month is keep_months or more months older than the current (UTC) month.
+    prefix="${1:?remote prefix required}"; keep="${2:?keep months required, e.g. 2}"
+    now_idx=$(( $(date -u +%Y) * 12 + 10#$(date -u +%m) - 1 ))
+    cutoff=$(( now_idx - keep ))     # delete files with month index <= cutoff
+    rclone lsf -R --files-only "s3:${S3_BUCKET}/${prefix}" 2>/dev/null | while IFS= read -r f; do
+      ym=$(printf '%s' "${f}" | grep -oP '[0-9]{6}(?=-preinstalled)' | head -n1)
+      [ -n "${ym}" ] || continue     # no YYYYMM in name => leave it alone
+      idx=$(( 10#${ym:0:4} * 12 + 10#${ym:4:2} - 1 ))
+      if [ "${idx}" -le "${cutoff}" ]; then
+        echo "prune-month: deleting ${prefix}/${f} (month ${ym}, keep=${keep})"
+        rclone deletefile "s3:${S3_BUCKET}/${prefix}/${f}" --s3-no-check-bucket || true
+      fi
+    done
+    rclone rmdirs "s3:${S3_BUCKET}/${prefix}" --leave-root --s3-no-check-bucket || true
+    ;;
   cp)
     src="${1:?remote src required}"; dst="${2:?remote dst required}"
     # server-side copy within the bucket; dst is replaced atomically (single PUT)
     rclone copyto "s3:${S3_BUCKET}/${src}" "s3:${S3_BUCKET}/${dst}" --s3-no-check-bucket
     ;;
   *)
-    echo "ci-s3.sh: unknown verb '${verb}' (expected get|put|prune|cp)" >&2
+    echo "ci-s3.sh: unknown verb '${verb}' (expected get|put|prune|prune-month|cp)" >&2
     exit 1
     ;;
 esac
