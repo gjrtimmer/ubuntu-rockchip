@@ -37,3 +37,9 @@ export LANG=C
 
 # Compile the kernel into a deb package
 fakeroot debian/rules clean binary-headers binary-rockchip do_mainline_build=true
+
+# Build the Ubuntu-style kernel metapackages (linux-image-rockchip etc.) so nodes can
+# track the latest ABI via apt and keep the prior kernel installed for rollback.
+# Kernel .debs land in build/ (the parent of this kernel source tree).
+cd ..
+../packages/linux-meta-rockchip/gen-and-build.sh "$(pwd)"
