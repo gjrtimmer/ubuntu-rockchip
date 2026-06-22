@@ -1,0 +1,78 @@
+name: apt-publish
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: Ubuntu suite to build + publish
+        type: choice
+        options: [jammy, noble]
+        default: noble
+
+jobs:
+  publish:
+    runs-on: [self-hosted, linux, arm64]   # arm64 required to build the kernel natively
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install host build deps, deb-s3, mc
+        run: |
+          sudo apt-get update
+          # NOTE: keep this list in sync with the authoritative apt-get block in build.yml.
+          sudo apt-get install -y build-essential gcc-aarch64-linux-gnu bison \
+            qemu-user-static qemu-system-arm qemu-efi u-boot-tools binfmt-support \
+            debootstrap flex libssl-dev bc rsync kmod cpio xz-utils fakeroot parted \
+            udev dosfstools uuid-runtime git-lfs device-tree-compiler python3 \
+            python3-pyelftools python3-setuptools gpg gnupg ruby ruby-dev
+          sudo gem install deb-s3 --no-document
+          sudo curl -fsSL https://dl.min.io/client/mc/release/linux-arm64/mc -o /usr/local/bin/mc
+          sudo chmod +x /usr/local/bin/mc
+
+      - name: Build kernel + metapackages
+        run: sudo ./build.sh --suite=${{ inputs.suite }} --kernel-only
+
+      - name: Build keyring bootstrap deb
+        run: sudo ./packages/rockchip-archive-keyring/build.sh "$PWD/build"
+
+      - name: Import GPG signing key
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+        run: echo "$APT_GPG_PRIVATE_KEY" | gpg --batch --import
+
+      - name: Publish to rockchip/apt on CAN (replicates to NL)
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_CLIENT_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_CLIENT_SECRET }}
+          S3_HOST: ${{ secrets.S3_HOST }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          APT_GPG_KEY_ID: ${{ vars.APT_GPG_KEY_ID }}
+          APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+        run: |
+          endpoint="https://${S3_HOST#https://}"
+          deb-s3 upload \
+            --bucket "${S3_BUCKET}" \
+            --prefix apt \
+            --endpoint "${endpoint}" \
+            --s3-region ca-central-1 \
+            --force-path-style \
+            --codename ${{ inputs.suite }} \
+            --component main \
+            --arch arm64 \
+            --preserve-versions \
+            --sign "$APT_GPG_KEY_ID" \
+            --gpg-options "--batch --pinentry-mode loopback --passphrase '$APT_GPG_PASSPHRASE'" \
+            build/linux-image-*-rockchip_*.deb \
+            build/linux-modules-*-rockchip_*.deb \
+            build/linux-headers-*-rockchip_*.deb \
+            build/linux-rockchip-headers-*.deb \
+            build/linux-image-rockchip_*.deb \
+            build/linux-headers-rockchip_*.deb \
+            build/linux-rockchip_*.deb \
+            build/rockchip-archive-keyring_*_all.deb
+
+      - name: Publish stable-named keyring deb for bootstrap
+        env:
+          MC_HOST_can: https://${{ secrets.S3_CLIENT_ID }}:${{ secrets.S3_CLIENT_SECRET }}@s3.timmertech.io
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          deb=$(ls build/rockchip-archive-keyring_*_all.deb | sort -V | tail -n1)
+          mc cp "$deb" "can/${S3_BUCKET}/apt/rockchip-archive-keyring.deb"
