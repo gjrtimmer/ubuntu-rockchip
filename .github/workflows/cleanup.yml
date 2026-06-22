@@ -7,11 +7,12 @@ run-name: Prune S3 CI handoffs, dated rootfs and dev build images
 # Retention: ci/ handoffs are pruned as soon as their GitHub Actions run FINISHES
 # (run-aware — see ci-s3.sh prune-handoffs; live queued/in_progress runs are never touched),
 # with a 7d age backstop for run_ids the API can't classify. rootfs 90d (3 months),
-# build 60d (2 months). Large month-keyed build caches are aged too: cache/base 60d,
-# cache/rootfs 90d (their keys embed the month, so an in-use entry is at most ~31d old —
-# never caught by the cutoff; only orphaned generations from a kernel/livecd/recipe sha
-# change are removed). The small sha-keyed caches (cache/kernel, cache/uboot) and release
-# images/ + manifest are never pruned.
+# build 60d (2 months). Large month-keyed build caches are aged too: cache/base 30d,
+# cache/rootfs 90d. Their keys embed the month; cache/rootfs always survives in-use, while
+# cache/base 30d may at most force one cheap (~17m) base rebuild in the final day(s) of a
+# 31-day month — the tradeoff for clearing orphaned base generations (kernel/livecd/recipe
+# sha changes) ~30d sooner. The small sha-keyed caches (cache/kernel, cache/uboot) and
+# release images/ + manifest are never pruned.
 on:
   schedule:
     - cron: "30 3,15 * * *"
@@ -68,5 +69,5 @@ jobs:
           ./scripts/ci-s3.sh prune-month build 2
           # large month-keyed build caches: orphaned generations (kernel/livecd/recipe sha changes)
           # never self-clean. Keys embed the month, so in-use entries are <=~31d old and survive these.
-          ./scripts/ci-s3.sh prune cache/base 60d
+          ./scripts/ci-s3.sh prune cache/base 30d
           ./scripts/ci-s3.sh prune cache/rootfs 90d
