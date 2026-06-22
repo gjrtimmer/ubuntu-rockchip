@@ -17,7 +17,10 @@
 #   ci-s3.sh put <local-src> <remote-prefix> [glob]   # cache save / publish (fails loud)
 #   ci-s3.sh prune <remote-prefix> <max-age>          # delete objects older than max-age by S3 mtime (e.g. 7d)
 #   ci-s3.sh prune-month <remote-prefix> <keep-months># delete objects by YYYYMM in filename (keeps last <keep> months)
+#   ci-s3.sh prune-handoffs <prefix> [grace]          # delete <prefix>/<run_id>/ for FINISHED gh runs (keeps live runs; default grace 2d)
 #   ci-s3.sh cp <remote-src> <remote-dst>             # server-side copy within the bucket (atomic dst replace)
+#
+# prune-handoffs needs GITHUB_TOKEN (actions:read) + GITHUB_REPOSITORY (owner/repo).
 set -euo pipefail
 
 : "${S3_HOST:?S3_HOST required}"
@@ -52,7 +55,7 @@ export RCLONE_RETRIES_SLEEP=20s
 export RCLONE_LOW_LEVEL_RETRIES=20
 export RCLONE_CONFIG_S3_UPLOAD_CONCURRENCY=2
 
-verb="${1:?verb required: get|put|prune|cp}"; shift
+verb="${1:?verb required: get|put|prune|prune-month|prune-handoffs|cp}"; shift
 
 case "${verb}" in
   get)
@@ -96,13 +99,62 @@ case "${verb}" in
     done
     rclone rmdirs "s3:${S3_BUCKET}/${prefix}" --leave-root --s3-no-check-bucket || true
     ;;
+  prune-handoffs)
+    # Run-aware prune of per-run handoff prefixes <prefix>/<run_id>/. A handoff is written by
+    # ONE run's kernel/uboot/base jobs and read only by the SAME run's build jobs (keyed on
+    # github.run_id) — once that run FINISHES it is dead weight no later pipeline reads. Query
+    # the GitHub Actions API per run_id and: KEEP runs still active (queued/in_progress/etc) so
+    # a live pipeline is never touched; DELETE runs that are completed (ANY conclusion — success
+    # or failure) and runs that 404 (purged from history). Optional <grace> (rclone-style duration,
+    # default 0 = aggressive) keeps just-completed runs for a "re-run failed jobs" window; this
+    # project dispatches a fresh build on failure rather than re-running, so 0 is safe.
+    prefix="${1:?remote prefix required, e.g. ci}"; grace="${2:-0}"
+    : "${GITHUB_TOKEN:?GITHUB_TOKEN required for prune-handoffs}"
+    : "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY required for prune-handoffs (owner/repo)}"
+    case "${grace}" in
+      *d) grace_secs=$(( ${grace%d} * 86400 ));;
+      *h) grace_secs=$(( ${grace%h} * 3600 ));;
+      *m) grace_secs=$(( ${grace%m} * 60 ));;
+      *s) grace_secs=$(( ${grace%s} ));;
+      *)  grace_secs=$(( grace ));;
+    esac
+    now=$(date -u +%s)
+    rclone lsf --dirs-only "s3:${S3_BUCKET}/${prefix}/" --s3-no-check-bucket 2>/dev/null | while IFS= read -r d; do
+      run_id="${d%/}"
+      case "${run_id}" in ''|*[!0-9]*) echo "skip   ${prefix}/${d} (non-numeric run id)"; continue;; esac
+      http=$(curl -sS -o /tmp/ghrun.json -w '%{http_code}' \
+        -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" \
+        "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" 2>/dev/null || echo 000)
+      if [ "${http}" = "200" ]; then
+        status=$(python3 -c 'import json;print(json.load(open("/tmp/ghrun.json")).get("status") or "")')
+        concl=$(python3 -c 'import json;print(json.load(open("/tmp/ghrun.json")).get("conclusion") or "")')
+        updated=$(python3 -c 'import json;print(json.load(open("/tmp/ghrun.json")).get("updated_at") or "")')
+      elif [ "${http}" = "404" ]; then
+        status=gone; concl=gone; updated=""
+      else
+        echo "keep   ${prefix}/${run_id} (gh api http ${http} — not pruning on uncertainty)"; continue
+      fi
+      if [ "${status}" != "completed" ] && [ "${status}" != "gone" ]; then
+        echo "keep   ${prefix}/${run_id} (active: status=${status})"; continue
+      fi
+      if [ "${status}" = "completed" ] && [ "${grace_secs}" -gt 0 ] && [ -n "${updated}" ]; then
+        upd=$(date -u -d "${updated}" +%s 2>/dev/null || echo "${now}")
+        if [ $(( now - upd )) -lt "${grace_secs}" ]; then
+          echo "keep   ${prefix}/${run_id} (completed ${updated}, within grace ${grace})"; continue
+        fi
+      fi
+      echo "prune  ${prefix}/${run_id} (status=${status} conclusion=${concl:-n/a})"
+      rclone delete "s3:${S3_BUCKET}/${prefix}/${run_id}" --s3-no-check-bucket || true
+    done
+    rclone rmdirs "s3:${S3_BUCKET}/${prefix}" --leave-root --s3-no-check-bucket || true
+    ;;
   cp)
     src="${1:?remote src required}"; dst="${2:?remote dst required}"
     # server-side copy within the bucket; dst is replaced atomically (single PUT)
     rclone copyto "s3:${S3_BUCKET}/${src}" "s3:${S3_BUCKET}/${dst}" --s3-no-check-bucket
     ;;
   *)
-    echo "ci-s3.sh: unknown verb '${verb}' (expected get|put|prune|prune-month|cp)" >&2
+    echo "ci-s3.sh: unknown verb '${verb}' (expected get|put|prune|prune-month|prune-handoffs|cp)" >&2
     exit 1
     ;;
 esac

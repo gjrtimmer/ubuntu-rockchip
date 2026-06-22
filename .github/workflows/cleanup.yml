@@ -3,23 +3,32 @@ run-name: Prune S3 CI handoffs, dated rootfs and dev build images
 
 # Dedicated scheduled cleanup of the S3 transient prefixes (ci/<run_id>/ handoffs,
 # rootfs/ dated copies, build/ dev disk images), instead of bolting a cleanup job onto
-# every build pipeline. Runs daily so the prefixes self-clean even during quiet periods.
-# Retention: ci 90d, rootfs 90d (3 months), build 60d (2 months); cache/ and release
-# images/ are never pruned.
+# every build pipeline. Runs every 12h so the prefixes self-clean promptly.
+# Retention: ci/ handoffs are pruned as soon as their GitHub Actions run FINISHES
+# (run-aware — see ci-s3.sh prune-handoffs; live queued/in_progress runs are never touched),
+# with a 7d age backstop for run_ids the API can't classify. rootfs 90d (3 months),
+# build 60d (2 months). Large month-keyed build caches are aged too: cache/base 60d,
+# cache/rootfs 90d (their keys embed the month, so an in-use entry is at most ~31d old —
+# never caught by the cutoff; only orphaned generations from a kernel/livecd/recipe sha
+# change are removed). The small sha-keyed caches (cache/kernel, cache/uboot) and release
+# images/ + manifest are never pruned.
 on:
   schedule:
-    - cron: "30 3 * * *"
+    - cron: "30 3,15 * * *"
   workflow_dispatch:
     inputs:
-      max_age:
-        description: "Delete ci/ handoff objects older than this (rclone duration, e.g. 90d)"
-        default: "90d"
+      backstop_age:
+        description: "Age backstop for ci/ handoffs the Actions API couldn't classify (rclone duration)"
+        default: "7d"
         type: string
 
 jobs:
   prune:
     runs-on: [self-hosted, ARM64, RK1]
     name: Prune ci/ handoffs
+    permissions:
+      contents: read
+      actions: read   # prune-handoffs reads workflow-run status via the Actions API
     steps:
       - name: Reset workspace
         shell: bash
@@ -36,19 +45,28 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7.0.0
 
-      - name: Prune ci/ handoffs, dated rootfs and dev build images
+      - name: Prune ci/ handoffs, dated rootfs, dev build images and orphaned caches
         shell: bash
         env:
           S3_HOST: ${{ secrets.S3_HOST }}
           S3_CLIENT_ID: ${{ secrets.S3_CLIENT_ID }}
           S3_CLIENT_SECRET: ${{ secrets.S3_CLIENT_SECRET }}
           S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
-          age="${{ inputs.max_age || '90d' }}"
-          ./scripts/ci-s3.sh prune ci "${age}"
+          # ci/<run_id> handoffs: delete as soon as the run has FINISHED (queued/in_progress runs
+          # are kept). Grace 0 — failures are retried by a fresh dispatch, not "re-run jobs".
+          ./scripts/ci-s3.sh prune-handoffs ci
+          # backstop: drop any ci/<run_id> the Actions API could not classify, after the age cutoff
+          ./scripts/ci-s3.sh prune ci "${{ inputs.backstop_age || '7d' }}"
           # dated rootfs copies kept 3 months; latest.tar.xz is rewritten monthly so it stays fresh
           ./scripts/ci-s3.sh prune rootfs 90d
           # dev /build channel disk images (build/<ver>/<board>/<image>) kept 2 months, aged by the
           # YYYYMM in the filename (not S3 mtime, so a re-publish does not reset the clock);
           # release images under images/ + manifest are never pruned (kept forever)
           ./scripts/ci-s3.sh prune-month build 2
+          # large month-keyed build caches: orphaned generations (kernel/livecd/recipe sha changes)
+          # never self-clean. Keys embed the month, so in-use entries are <=~31d old and survive these.
+          ./scripts/ci-s3.sh prune cache/base 60d
+          ./scripts/ci-s3.sh prune cache/rootfs 90d
