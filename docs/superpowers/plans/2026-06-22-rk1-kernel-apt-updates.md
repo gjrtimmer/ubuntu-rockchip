@@ -4,20 +4,20 @@
 
 **Goal:** Let already-running Rockchip nodes (RK1 / Turing Pi) upgrade their kernel with `apt upgrade` + reboot — co-installable ABI-versioned kernels, a meta-package that tracks the latest, old kernel kept for rollback — exactly like stock Ubuntu on x86, instead of reflashing.
 
-**Architecture:** `Joshua-Riek/linux-rockchip` already builds Ubuntu kernel packaging (ABI-versioned `linux-image-6.1.0-NNNN-rockchip`; boot via `u-boot-update`/extlinux which enumerates every installed kernel = the `update-grub` equivalent). Three gaps remain: (1) no meta-package to track "latest", (2) no hosting channel, (3) shipped kernel is `apt-mark hold`'d. We add a `packages/linux-meta-rockchip/` source, a `packages/rockchip-archive-keyring/` source (the one-`dpkg`-install bootstrap), publish them + the kernel debs to a **new GPG-signed APT repo on the existing MinIO**, bake the (pinned, opt-in) channel into images, and ship a fleet-enable script for the existing RK1 nodes.
+**Architecture:** `Joshua-Riek/linux-rockchip` already builds Ubuntu kernel packaging (ABI-versioned `linux-image-6.1.0-NNNN-rockchip`; boot via `u-boot-update`/extlinux which enumerates every installed kernel = the `update-grub` equivalent). Three gaps remain: (1) no meta-package to track "latest", (2) no hosting channel, (3) shipped kernel is `apt-mark hold`'d. We add a `packages/linux-meta-rockchip/` source, a `packages/rockchip-archive-keyring/` source (the one-`dpkg`-install bootstrap), publish them + the kernel debs to a GPG-signed APT repo hosted on the existing MinIO, bake the (pinned, opt-in) channel into images, and ship a fleet-enable script for the existing RK1 nodes.
 
-**Serving:** MinIO direct — an apt repo is just static files (`dists/` + `pool/`) and MinIO is an S3-compatible HTTPS server; `deb-s3` writes the layout and apt fetches exact paths from the signed `Release` (no directory listing needed). **No nginx, no package-registry daemon** — they would only add a vanity host / edge cache, unnecessary at this fleet size and addable later without changing the repo layout.
+**Serving:** MinIO direct — an apt repo is just static files (`dists/` + `pool/`) and MinIO is an S3-compatible HTTPS server; `deb-s3` writes the standard layout (`pool/` + `dists/`, version-named debs) and apt fetches exact paths from the signed `Release`. **No nginx, no package-registry daemon** — they'd only add a vanity host / edge cache, addable later without changing the layout.
 
-**Dual-mirror with fallback:** hosted on **two** MinIO instances — `s3.timmertech.nl` (NL, fast — nodes hit it first) and `s3.timmertech.io` (CAN, the authoritative origin-of-truth / backup). `deb-s3` publishes to **CAN only**; CI then `mc mirror`s the tree byte-for-byte to NL, so both serve the *identical signed `Release`*. The GPG signature is over `Release` *content*, not URL, so one key covers both mirrors. Clients list both URLs in one deb822 `URIs:` stanza (NL first); apt falls back to CAN automatically if NL is unreachable. **Never run `deb-s3` independently against both** — each run stamps a different `Release` `Date:`, which breaks apt's hashsum check on fallback.
+**Hosting + dual-mirror with fallback:** the repo lives **under the existing `rockchip` bucket at prefix `apt/`** (`rockchip/apt/{dists,pool}/…`), not a new bucket. `deb-s3` publishes to **CAN only** (`s3.timmertech.io`, the authoritative origin), reusing the existing CI S3 credentials. CAN→NL is **MinIO server-side replication** — the same mechanism that already mirrors `releases/`+`images/` to `s3.timmertech.nl` — extended to cover `apt/`; replication copies the *identical signed `Release`*, so there is **no `mc mirror` step** and no second `Date:` stamp. The GPG signature is over `Release` *content*, not URL, so one key covers both hosts. Clients list both URLs in one deb822 `URIs:` stanza (NL first); apt falls back to CAN per-file if NL lags replication or is unreachable.
 
-**Tech Stack:** Bash, Debian packaging (debhelper 13, native source format), `deb-s3` (Ruby gem) → MinIO/S3, `mc mirror`, GPG-signed `Release`, GitHub Actions (`workflow_dispatch`), apt deb822 sources + apt pinning, an `*-archive-keyring` bootstrap deb.
+**Tech Stack:** Bash, Debian packaging (debhelper 13, native source format), `deb-s3` (Ruby gem) → MinIO/S3, MinIO server-side bucket replication + ILM, GPG-signed `Release`, GitHub Actions (`workflow_dispatch`), apt deb822 sources + apt pinning, an `*-archive-keyring` bootstrap deb.
 
 ## Global Constraints
 
 Copied verbatim from CLAUDE.md / repo conventions — every task implicitly inherits these:
 
-- **NEVER** run any destructive `mc` op (`mc rm`/`rb`/`mv`) against the MinIO `rockchip` bucket — read-only only. The new repo lives in a **separate `apt` bucket** on each mirror; never touch `rockchip`. `mc mirror` is scoped to `.../apt` paths only.
-- The env var is misspelled **`RELASE_VERSION`** / `RELASE_NAME` (no second "E") throughout. **Do NOT "fix" it** — it is a load-bearing convention across every script; renaming breaks the build and is out of scope for this feature.
+- The apt repo lives **under the `rockchip` bucket at prefix `apt/`**. CI may only **add/overwrite within `apt/`** (deb-s3 `--preserve-versions` adds debs + overwrites the small `dists/.../{Packages,Release}` indices; replication copies them). It must **NEVER** delete, prune, `mc rm`/`rb`/`mv`, or touch any prefix other than `apt/`. Pruning of `rockchip` stays owned solely by the existing dedicated CI steps.
+- The env var is misspelled **`RELASE_VERSION`** / `RELASE_NAME` in upstream but **corrected to `RELEASE_VERSION` / `RELEASE_NAME` in this fork** (#71). Use the corrected spelling.
 - Final node-facing kernel images stay co-installable; **never** overwrite-in-place.
 - **Never `apt upgrade`/`dist-upgrade` for currency inside the build pipeline.** Images ship the pinned monthly snapshot; upgrading is the end-user's job. This feature is the *end-user upgrade channel* — it does not change build-time currency.
 - Commits + PR titles are **Conventional Commits** (`feat fix build chore ci docs perf refactor revert style test`). CI validates PR titles.
@@ -30,7 +30,7 @@ Copied verbatim from CLAUDE.md / repo conventions — every task implicitly inhe
 The signing key is the trust root for every node's kernel. Compromise = arbitrary-root on the whole fleet.
 
 - Private signing key lives **only** in GitHub Actions secrets (`APT_GPG_PRIVATE_KEY`, `APT_GPG_PASSPHRASE`). Never committed, never written to a bucket, never printed in logs.
-- The **public** key is committed (`packages/rockchip-archive-keyring/rockchip-archive-keyring.asc`) — public by nature — and also published to both buckets for direct bootstrap.
+- The **public** key is committed (`packages/rockchip-archive-keyring/rockchip-archive-keyring.asc`) — public by nature — and also published to `rockchip/apt/` (replicated to NL) for direct bootstrap.
 - The `Release` file is GPG-signed (`deb-s3 --sign`); clients pin the key with `Signed-By` (no unauthenticated `apt-key`).
 - Both mirrors served over **HTTPS** only.
 - Use a **dedicated** signing subkey for this repo, not a personal GPG identity. Rotate before the 2y expiry by committing a new public key + bumping the keyring deb version.
@@ -45,27 +45,28 @@ The signing key is the trust root for every node's kernel. Compromise = arbitrar
 | `packages/linux-meta-rockchip/gen-and-build.sh` | Stamp ABI from built kernel → build meta debs into `build/` | Create |
 | `packages/rockchip-archive-keyring/debian/control` | Keyring/source bootstrap package (arch:all) | Create |
 | `packages/rockchip-archive-keyring/debian/rules` | Dearmor committed pubkey into `/usr/share/keyrings` | Create |
-| `packages/rockchip-archive-keyring/debian/postinst` | Write `.sources` (multi-URI) from `/etc/os-release` suite | Create |
+| `packages/rockchip-archive-keyring/debian/postinst` | Write `.sources` (multi-URI, `rockchip/apt`) from `/etc/os-release` suite | Create |
 | `packages/rockchip-archive-keyring/debian/postrm` | Remove the `.sources` on remove/purge | Create |
 | `packages/rockchip-archive-keyring/debian/{changelog,source/format}` | Native pkg, manually-bumped version | Create |
-| `packages/rockchip-archive-keyring/rockchip-archive-keyring.asc` | Committed **public** signing key | Create |
+| `packages/rockchip-archive-keyring/rockchip-archive-keyring.asc` | Committed **public** signing key (placeholder until Task 1) | Create |
 | `packages/rockchip-archive-keyring/build.sh` | Build the keyring deb into `build/` (idempotent) | Create |
 | `scripts/build-kernel.sh` | Call the meta builder after the kernel build | Modify |
-| `.github/workflows/apt-publish.yml` | Build kernel+meta+keyring, GPG-sign, `deb-s3`→CAN, `mc mirror`→NL | Create |
+| `scripts/s3-ilm-setup.sh` | Add `apt/` to the 365-day retention prefixes | Modify |
+| `.github/workflows/apt-publish.yml` | Build kernel+meta+keyring, GPG-sign, `deb-s3`→`rockchip/apt` on CAN (replicates to NL) | Create |
 | `scripts/config-image.sh` | Build+install keyring deb, write pin=100, drop kernel `hold` (common section) | Modify |
 | `scripts/enable-kernel-updates.sh` | Fleet one-shot: download keyring deb, pin=500, unhold, install meta | Create |
 | `docs/kernel-updates.md` | End-user + operator runbook (bootstrap, rollback, keep-N, BMC recovery, canary) | Create |
 
 ---
 
-### Task 1: Provision the signed APT repo + signing key (one-time bootstrap)
+### Task 1: Bootstrap the signing key, replication, and ILM (one-time, manual)
 
-Manual operator setup, run once on a trusted workstation with `mc` + `gpg`. Produces: the `apt` bucket on **both** mirrors, a signing keypair, the GitHub secrets/vars, the published public key, and the committed public key for the keyring deb.
+Manual operator setup on a trusted workstation with `mc` + `gpg`. The `rockchip` bucket already exists and is public-read (the download site serves from it), so **no bucket creation**. We add the `apt/` prefix to the existing CAN→NL replication + 365-day ILM, generate the signing key, and publish the public key under `rockchip/apt/`.
 
-**Files:** none committed here except the public key in Task 3 (`rockchip-archive-keyring.asc`).
+**Files:** none committed here except the public key the operator drops into Task 3.
 
 **Interfaces:**
-- Produces: bucket `apt` (public-read) on both mirrors; `https://s3.timmertech.{nl,io}/apt/rockchip-archive-keyring.asc`; GH secrets `APT_GPG_PRIVATE_KEY`, `APT_GPG_PASSPHRASE`, `APT_S3_ACCESS_KEY`/`APT_S3_SECRET_KEY` (CAN), `APT_NL_ACCESS_KEY`/`APT_NL_SECRET_KEY` (NL); GH var `APT_GPG_KEY_ID`. Consumed by Tasks 3/5/6.
+- Produces: signing keypair; GH secrets `APT_GPG_PRIVATE_KEY` + `APT_GPG_PASSPHRASE`; GH var `APT_GPG_KEY_ID`; `apt/` added to `can/rockchip` replication + ILM; `https://s3.timmertech.{nl,io}/rockchip/apt/rockchip-archive-keyring.asc`. **Publishing reuses the existing CI S3 secrets** (`S3_HOST`/`S3_CLIENT_ID`/`S3_CLIENT_SECRET`/`S3_BUCKET`) — no new S3 or NL credentials. Consumed by Tasks 3/6.
 
 - [ ] **Step 1: Create the dedicated signing key (non-personal identity)**
 
@@ -86,58 +87,65 @@ KEYID=$(gpg --list-keys --with-colons ci@timmertech.io | awk -F: '/^pub:/{print 
 echo "APT_GPG_KEY_ID=$KEYID"
 ```
 
-Expected: a 16-hex-char key ID printed. Record it.
+Expected: a 16-hex-char key ID. Record it.
 
-- [ ] **Step 2: Configure the NL alias and create the `apt` bucket on BOTH mirrors (NOT `rockchip`)**
+- [ ] **Step 2: Add `apt/` to the existing CAN→NL replication rule**
+
+Mirror the config of the existing `images/`+`releases/` rules (delete-replication OFF). Inspect them, then add the prefix:
 
 ```bash
-# `can` (s3.timmertech.io) is the existing origin-of-truth alias. Add `nld` (s3.timmertech.nl).
-mc alias set nld https://s3.timmertech.nl "$NL_ACCESS_KEY" "$NL_SECRET_KEY"
-for a in can nld; do
-  mc mb "$a/apt"
-  mc anonymous set download "$a/apt"     # read-only public; uploads still need creds
-  mc ls "$a/apt"                          # expect: empty
-done
+mc replicate export can/rockchip | jq '.Rules[] | {ID,Prefix:.Filter.And.Prefix // .Filter.Prefix, Dest:.Destination.Bucket}'
+# Reuse the same destination ARN the images/releases rules use:
+DEST_ARN=$(mc replicate export can/rockchip | jq -r '.Rules[0].Destination.Bucket')
+mc replicate add can/rockchip --remote-bucket "$DEST_ARN" --prefix "apt/" --replicate "existing-objects,metadata-sync" --priority 30
+mc replicate export can/rockchip | jq '.Rules[] | select((.Filter.And.Prefix // .Filter.Prefix)=="apt/")'
 ```
 
-Expected: both buckets created + empty. (Never target `*/rockchip`.)
+Expected: a rule for `apt/` to the same NL destination, delete-replication disabled (matches the others).
 
-- [ ] **Step 3: Publish the public key to BOTH mirrors**
+- [ ] **Step 3: Extend ILM to retain `apt/` for 365 days**
+
+After Task 5 edits `s3-ilm-setup.sh`, re-run it; or add the rule directly now:
+
+```bash
+mc ilm rule add can/rockchip --prefix "apt/" --noncurrent-expire-days 365 --expire-delete-marker
+mc ilm rule ls can/rockchip | grep apt
+```
+
+Expected: `apt/` listed with 365-day noncurrent expiry (same as `releases/`/`images/`).
+
+- [ ] **Step 4: Publish the public key under `rockchip/apt/` (replicates to NL)**
 
 ```bash
 gpg --armor --export "$KEYID" > /tmp/rockchip-archive-keyring.asc
-mc cp /tmp/rockchip-archive-keyring.asc can/apt/rockchip-archive-keyring.asc
-mc cp /tmp/rockchip-archive-keyring.asc nld/apt/rockchip-archive-keyring.asc
-for h in s3.timmertech.nl s3.timmertech.io; do
-  curl -fsSL "https://$h/apt/rockchip-archive-keyring.asc" | gpg --show-keys
+mc cp /tmp/rockchip-archive-keyring.asc can/rockchip/apt/rockchip-archive-keyring.asc
+sleep 30   # allow replication
+for h in s3.timmertech.io s3.timmertech.nl; do
+  curl -fsSL "https://$h/rockchip/apt/rockchip-archive-keyring.asc" | gpg --show-keys
 done
 ```
 
-Expected: both hosts return the same key ID. Keep `/tmp/rockchip-archive-keyring.asc` for Task 3 (commit it).
+Expected: both hosts return the same key ID (NL via replication). Keep `/tmp/rockchip-archive-keyring.asc` for Task 3.
 
-- [ ] **Step 4: Store secrets/vars in GitHub**
+- [ ] **Step 5: Store the GPG secrets/var in GitHub (S3 creds already exist)**
 
 ```bash
 gpg --armor --export-secret-keys "$KEYID" | gh secret set APT_GPG_PRIVATE_KEY
 gh secret set APT_GPG_PASSPHRASE        # empty here (key has %no-protection); set if you add one
-gh secret set APT_S3_ACCESS_KEY         # CAN (s3.timmertech.io) write key, apt bucket only
-gh secret set APT_S3_SECRET_KEY
-gh secret set APT_NL_ACCESS_KEY         # NL (s3.timmertech.nl) write key, apt bucket only
-gh secret set APT_NL_SECRET_KEY
 gh variable set APT_GPG_KEY_ID --body "$KEYID"
 ```
 
-Expected: `gh secret list` shows the six secrets; `gh variable list` shows `APT_GPG_KEY_ID`.
+Expected: `gh secret list` shows the GPG secrets; `gh variable list` shows `APT_GPG_KEY_ID`. (`S3_HOST`/`S3_CLIENT_ID`/`S3_CLIENT_SECRET`/`S3_BUCKET` already exist for `ci-s3.sh`.)
 
-- [ ] **Step 5: Remove the private key from the workstation keyring**
+- [ ] **Step 6: Remove the private key from the workstation**
 
 ```bash
 gpg --batch --yes --delete-secret-keys "$KEYID"
 ```
 
-Expected: `gpg --list-secret-keys ci@timmertech.io` → no result. (Private key now exists only in the GH secret.)
+Expected: `gpg --list-secret-keys ci@timmertech.io` → no result.
 
-> No commit in this task. Record the key ID for Tasks 3 + 8.
+> No commit. Record the key ID for Tasks 3 + 9.
 
 ---
 
@@ -254,21 +262,35 @@ git commit -m "feat(kernel): add linux-meta-rockchip metapackages for apt kernel
 
 One `dpkg -i` installs the signing key + the multi-URI apt source. Once it's in the repo it self-updates, so key rotation ships as a new package version. The deb is **policy-neutral** (no pin — the pin is written by the installer). Universal `arch:all`: the `postinst` fills the suite from `/etc/os-release`, so one deb works on jammy + noble and inside the build chroot.
 
+**Note (key-later sequencing):** Task 1 has not run yet, so the real public key does not exist. Commit a **placeholder** `rockchip-archive-keyring.asc` (a clearly-marked dummy) plus a short `README` saying the operator replaces it with the real Task 1 key and bumps the changelog before publishing. The package structure is final; only the key bytes change later.
+
 **Files:**
-- Create: `packages/rockchip-archive-keyring/rockchip-archive-keyring.asc` (the public key from Task 1 Step 3)
+- Create: `packages/rockchip-archive-keyring/rockchip-archive-keyring.asc` (placeholder for now)
+- Create: `packages/rockchip-archive-keyring/README.md` (key-replacement note)
 - Create: `packages/rockchip-archive-keyring/debian/{control,rules,postinst,postrm,changelog,source/format}`
 - Create: `packages/rockchip-archive-keyring/build.sh`
 
 **Interfaces:**
-- Consumes: the committed public key.
-- Produces: `build/rockchip-archive-keyring_<ver>_all.deb`. Installs `/usr/share/keyrings/rockchip-archive-keyring.gpg` + (via postinst) `/etc/apt/sources.list.d/rockchip-kernel.sources`. Entry point: `build.sh <BUILD_DIR>` (idempotent — skips if the deb already exists). Consumed by Tasks 4/5/6.
+- Produces: `build/rockchip-archive-keyring_<ver>_all.deb`. Installs `/usr/share/keyrings/rockchip-archive-keyring.gpg` + (via postinst) `/etc/apt/sources.list.d/rockchip-kernel.sources`. Entry point: `build.sh <BUILD_DIR>` (idempotent — skips if the deb already exists). Consumed by Tasks 6/7.
 
-- [ ] **Step 1: Commit the public key**
+- [ ] **Step 1: Write a placeholder key + README**
 
 ```bash
 mkdir -p packages/rockchip-archive-keyring/debian/source
-cp /tmp/rockchip-archive-keyring.asc packages/rockchip-archive-keyring/rockchip-archive-keyring.asc
-gpg --show-keys packages/rockchip-archive-keyring/rockchip-archive-keyring.asc   # confirm key ID
+printf '%s\n' 'PLACEHOLDER — replace with the real public key from plan Task 1 (mc/gpg export) before publishing.' \
+  > packages/rockchip-archive-keyring/rockchip-archive-keyring.asc
+```
+
+`README.md`:
+
+```markdown
+# rockchip-archive-keyring
+
+Bootstrap package: installs the Rockchip kernel repo signing key + apt source.
+
+**Before publishing:** replace `rockchip-archive-keyring.asc` with the real ASCII-armored
+public key generated in the implementation plan's Task 1, then bump `debian/changelog`.
+The current `.asc` is a placeholder so the package can be built and reviewed.
 ```
 
 - [ ] **Step 2: Write `debian/source/format`** → `3.0 (native)`
@@ -304,7 +326,7 @@ override_dh_install:
 	  > debian/rockchip-archive-keyring/usr/share/keyrings/rockchip-archive-keyring.gpg
 ```
 
-- [ ] **Step 5: Write `debian/postinst`** (NL first, CAN fallback; suite from os-release; make executable)
+- [ ] **Step 5: Write `debian/postinst`** (NL first, CAN fallback; `rockchip/apt`; suite from os-release; make executable)
 
 ```sh
 #!/bin/sh
@@ -314,7 +336,7 @@ case "$1" in
     . /etc/os-release
     cat > /etc/apt/sources.list.d/rockchip-kernel.sources <<EOF
 Types: deb
-URIs: https://s3.timmertech.nl/apt https://s3.timmertech.io/apt
+URIs: https://s3.timmertech.nl/rockchip/apt https://s3.timmertech.io/rockchip/apt
 Suites: ${VERSION_CODENAME}
 Components: main
 Architectures: arm64
@@ -345,7 +367,7 @@ exit 0
 ```
 rockchip-archive-keyring (1.0) noble; urgency=medium
 
-  * Initial keyring + apt source for the Rockchip kernel repo (NL + CAN mirrors).
+  * Initial keyring + apt source for the Rockchip kernel repo (rockchip/apt; NL + CAN).
 
  -- Ubuntu Rockchip CI <ci@timmertech.io>  Mon, 22 Jun 2026 00:00:00 +0000
 ```
@@ -379,7 +401,7 @@ echo "Built rockchip-archive-keyring -> ${BUILD_DIR}"
 ```bash
 chmod +x packages/rockchip-archive-keyring/debian/{rules,postinst,postrm} packages/rockchip-archive-keyring/build.sh
 git add packages/rockchip-archive-keyring
-git commit -m "feat(apt): add rockchip-archive-keyring bootstrap package (key + multi-mirror source)"
+git commit -m "feat(apt): add rockchip-archive-keyring bootstrap package (key + rockchip/apt source)"
 ```
 
 ---
@@ -422,18 +444,54 @@ gh workflow run build.yml -f suite=noble --ref "$(git branch --show-current)"
 gh run watch "$(gh run list --workflow=build.yml --limit=1 --json databaseId -q '.[0].databaseId')"
 ```
 
-Expected: log shows `Built metapackages for 6.1.0-NNNN-rockchip`; artifacts include `linux-image-rockchip_*.deb`, `linux-headers-rockchip_*.deb`, `linux-rockchip_*.deb`.
+Expected: log shows `Built metapackages for 6.1.0-NNNN-rockchip`; artifacts include the three meta debs.
 
 ---
 
-### Task 5: CI workflow — build, sign, publish to CAN, mirror to NL
+### Task 5: Extend ILM retention to the `apt/` prefix
+
+`apt/` must be retained like `releases/`/`images/` (365-day noncurrent), not purged like the build-pipeline prefixes. One-line edit so re-running the setup script covers it.
+
+**Files:**
+- Modify: `scripts/s3-ilm-setup.sh:58` (the synced-prefix loop)
+
+**Interfaces:** none (operator re-runs the script, or Task 1 Step 3 added the rule directly).
+
+- [ ] **Step 1: Add `apt` to the 365-day prefix loop** at [scripts/s3-ilm-setup.sh:58](../../scripts/s3-ilm-setup.sh#L58)
+
+Change:
+
+```bash
+for p in releases images; do
+```
+
+to:
+
+```bash
+for p in releases images apt; do
+```
+
+And update the header comment block ([s3-ilm-setup.sh:9](../../scripts/s3-ilm-setup.sh#L9)) to list `apt/` among the synced/365-day prefixes.
+
+- [ ] **Step 2: Lint (local gate)** — `shellcheck scripts/s3-ilm-setup.sh` → no new errors.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add scripts/s3-ilm-setup.sh
+git commit -m "ci(s3): retain rockchip/apt noncurrent versions 365d like releases/images"
+```
+
+---
+
+### Task 6: CI workflow — build, sign, publish to `rockchip/apt` on CAN
 
 **Files:**
 - Create: `.github/workflows/apt-publish.yml`
 
 **Interfaces:**
-- Consumes: Task 1 secrets/vars; meta debs (Tasks 2/4); keyring `build.sh` (Task 3).
-- Produces: a signed repo on CAN at `https://s3.timmertech.io/apt`, mirrored byte-identical to NL at `https://s3.timmertech.nl/apt`, plus a stable-named `…/apt/rockchip-archive-keyring.deb` on both for bootstrap.
+- Consumes: Task 1 GPG secrets/var + the existing `S3_*` secrets; meta debs (Tasks 2/4); keyring `build.sh` (Task 3).
+- Produces: a signed repo at `https://s3.timmertech.io/rockchip/apt` (replicated to NL), plus a stable-named `…/rockchip/apt/rockchip-archive-keyring.deb` for bootstrap.
 
 - [ ] **Step 1: Write the workflow**
 
@@ -478,17 +536,21 @@ jobs:
           APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
         run: echo "$APT_GPG_PRIVATE_KEY" | gpg --batch --import
 
-      - name: Publish to CAN (origin-of-truth)
+      - name: Publish to rockchip/apt on CAN (replicates to NL)
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.APT_S3_ACCESS_KEY }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.APT_S3_SECRET_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_CLIENT_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_CLIENT_SECRET }}
+          S3_HOST: ${{ secrets.S3_HOST }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
           APT_GPG_KEY_ID: ${{ vars.APT_GPG_KEY_ID }}
           APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
         run: |
+          endpoint="https://${S3_HOST#https://}"
           deb-s3 upload \
-            --bucket apt \
-            --endpoint https://s3.timmertech.io \
-            --s3-region us-east-1 \
+            --bucket "${S3_BUCKET}" \
+            --prefix apt \
+            --endpoint "${endpoint}" \
+            --s3-region ca-central-1 \
             --force-path-style \
             --codename ${{ inputs.suite }} \
             --component main \
@@ -505,23 +567,16 @@ jobs:
             build/linux-rockchip_*.deb \
             build/rockchip-archive-keyring_*_all.deb
 
-      - name: Mirror CAN -> NL (byte-identical signed tree; do NOT re-run deb-s3 against NL)
+      - name: Publish stable-named keyring deb for bootstrap
         env:
-          MC_HOST_can: https://${{ secrets.APT_S3_ACCESS_KEY }}:${{ secrets.APT_S3_SECRET_KEY }}@s3.timmertech.io
-          MC_HOST_nld: https://${{ secrets.APT_NL_ACCESS_KEY }}:${{ secrets.APT_NL_SECRET_KEY }}@s3.timmertech.nl
-        run: mc mirror --overwrite --quiet can/apt nld/apt
-
-      - name: Publish stable-named keyring deb for bootstrap (both mirrors)
-        env:
-          MC_HOST_can: https://${{ secrets.APT_S3_ACCESS_KEY }}:${{ secrets.APT_S3_SECRET_KEY }}@s3.timmertech.io
-          MC_HOST_nld: https://${{ secrets.APT_NL_ACCESS_KEY }}:${{ secrets.APT_NL_SECRET_KEY }}@s3.timmertech.nl
+          MC_HOST_can: https://${{ secrets.S3_CLIENT_ID }}:${{ secrets.S3_CLIENT_SECRET }}@s3.timmertech.io
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
         run: |
           deb=$(ls build/rockchip-archive-keyring_*_all.deb | sort -V | tail -n1)
-          mc cp "$deb" can/apt/rockchip-archive-keyring.deb
-          mc cp "$deb" nld/apt/rockchip-archive-keyring.deb
+          mc cp "$deb" "can/${S3_BUCKET}/apt/rockchip-archive-keyring.deb"
 ```
 
-`--preserve-versions` keeps older ABI debs in the pool (required for rollback + co-install). `--force-path-style` is needed for MinIO; if `deb-s3` rejects it, fall back to a virtual-host CNAME and drop the flag. `mc mirror --overwrite` (no `--remove`) makes NL a superset replica — never deletes — and is scoped to `apt` only.
+`--preserve-versions` keeps older ABI debs in the pool (rollback + co-install). `--prefix apt` puts everything under `rockchip/apt/`. CAN→NL replication (Task 1) carries it to NL — **no `mc mirror` step**. `--force-path-style` is required for MinIO; if `deb-s3` rejects it, fall back to a virtual-host CNAME.
 
 - [ ] **Step 2: Validate the workflow YAML (local gate)** — `python3 -c "import yaml; yaml.safe_load(open('.github/workflows/apt-publish.yml'))"` → no output.
 
@@ -529,28 +584,29 @@ jobs:
 
 ```bash
 git add .github/workflows/apt-publish.yml
-git commit -m "ci(apt): publish kernel + metapackages to signed CAN repo, mirror to NL"
+git commit -m "ci(apt): publish kernel + metapackages to signed rockchip/apt repo"
 ```
 
-- [ ] **Step 4: Full gate — dispatch and verify both mirrors are signed + identical**
+- [ ] **Step 4: Full gate — dispatch and verify signed + replicated**
 
 ```bash
 gh workflow run apt-publish.yml -f suite=noble --ref "$(git branch --show-current)"
 gh run watch "$(gh run list --workflow=apt-publish.yml --limit=1 --json databaseId -q '.[0].databaseId')"
 # After success:
-curl -fsSI https://s3.timmertech.io/apt/dists/noble/Release.gpg     # 200 (signed)
-diff <(curl -fsSL https://s3.timmertech.nl/apt/dists/noble/Release) \
-     <(curl -fsSL https://s3.timmertech.io/apt/dists/noble/Release) && echo IDENTICAL
-curl -fsSI https://s3.timmertech.nl/apt/rockchip-archive-keyring.deb # 200
+curl -fsSI https://s3.timmertech.io/rockchip/apt/dists/noble/Release.gpg     # 200 (signed, CAN)
+sleep 60   # replication lag
+diff <(curl -fsSL https://s3.timmertech.nl/rockchip/apt/dists/noble/Release) \
+     <(curl -fsSL https://s3.timmertech.io/rockchip/apt/dists/noble/Release) && echo IDENTICAL
+curl -fsSI https://s3.timmertech.nl/rockchip/apt/rockchip-archive-keyring.deb # 200 (NL via replication)
 ```
 
-Expected: `Release.gpg` exists; NL and CAN `Release` are byte-identical (`IDENTICAL`); the bootstrap deb is downloadable from NL.
+Expected: `Release.gpg` exists on CAN; once replication settles, NL `Release` is byte-identical; the bootstrap deb is reachable on NL.
 
 ---
 
-### Task 6: Bake the (pinned, opt-in) channel into images
+### Task 7: Bake the (pinned, opt-in) channel into images
 
-Images keep shipping the pinned monthly kernel snapshot (no build-time currency). We install the keyring deb (key + source), **pin to priority 100** so `apt upgrade` will NOT auto-pull a kernel (critical for unattended headless nodes), and **drop the `apt-mark hold`** so a deliberate `apt install linux-rockchip` works. The meta is NOT installed by default — opting into tracking is the node owner's action (Task 7).
+Images keep shipping the pinned monthly kernel snapshot. We install the keyring deb (key + source), **pin to priority 100** so `apt upgrade` will NOT auto-pull a kernel (critical for unattended headless nodes), and **drop the `apt-mark hold`** so a deliberate `apt install linux-rockchip` works. The meta is NOT installed by default — opting into tracking is the node owner's action (Task 8).
 
 **Files:**
 - Modify: `scripts/config-image.sh` (common section, after the kernel install / before initramfs)
@@ -604,16 +660,16 @@ gh workflow run build.yml -f board=turing-rk1 -f suite=noble -f flavor=server --
 On the built image (boot or loop-mount):
 
 ```bash
-apt-cache policy linux-rockchip                  # candidate from s3.timmertech.{nl,io}, priority 100
+apt-cache policy linux-rockchip                  # candidate from s3.timmertech.{nl,io}/rockchip/apt, priority 100
 apt-mark showhold | grep -c '^linux-'            # expect 0
-cat /etc/apt/sources.list.d/rockchip-kernel.sources   # multi-URI, suite matches image
+cat /etc/apt/sources.list.d/rockchip-kernel.sources   # multi-URI rockchip/apt, suite matches image
 ```
 
-Expected: channel present (both URIs), kernel not held, priority 100 → `apt upgrade` is a kernel no-op.
+Expected: channel present (both URIs under `rockchip/apt`), kernel not held, priority 100 → `apt upgrade` is a kernel no-op.
 
 ---
 
-### Task 7: Fleet-enable script for the existing RK1 nodes
+### Task 8: Fleet-enable script for the existing RK1 nodes
 
 Flips an already-flashed node from "pinned, not tracking" to "tracks latest kernel". Bootstrap = download the keyring deb directly (NL, fall back to CAN), `dpkg -i`, then pin=500 + install meta. After the first install the keyring updates itself via apt.
 
@@ -621,7 +677,7 @@ Flips an already-flashed node from "pinned, not tracking" to "tracks latest kern
 - Create: `scripts/enable-kernel-updates.sh`
 
 **Interfaces:**
-- Consumes: the published bootstrap deb + repo (Tasks 1/5).
+- Consumes: the published bootstrap deb + repo (Tasks 1/6).
 - Produces: a node tracking `linux-rockchip`.
 
 - [ ] **Step 1: Write the script (make executable)**
@@ -637,8 +693,8 @@ set -euo pipefail
 # Bootstrap: download the keyring deb (NL fast, CAN fallback) and install it.
 # It drops the signing key + the apt source; afterwards it updates itself via apt.
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
-curl -fsSL https://s3.timmertech.nl/apt/rockchip-archive-keyring.deb -o "$tmp/k.deb" \
-  || curl -fsSL https://s3.timmertech.io/apt/rockchip-archive-keyring.deb -o "$tmp/k.deb"
+curl -fsSL https://s3.timmertech.nl/rockchip/apt/rockchip-archive-keyring.deb -o "$tmp/k.deb" \
+  || curl -fsSL https://s3.timmertech.io/rockchip/apt/rockchip-archive-keyring.deb -o "$tmp/k.deb"
 dpkg -i "$tmp/k.deb"
 
 # Priority 500 = normal: this node tracks the latest kernel on apt upgrade. Pin both mirror hosts.
@@ -691,7 +747,7 @@ Expected: node boots the new kernel, old kernel still installed + in the extlinu
 
 ---
 
-### Task 8: Keep-N kernels + operator runbook
+### Task 9: Keep-N kernels + operator runbook
 
 **Files:**
 - Create: `docs/kernel-updates.md`
@@ -704,8 +760,9 @@ Expected: node boots the new kernel, old kernel still installed + in the extlinu
 Nodes upgrade their kernel with apt instead of reflashing. Kernels are
 ABI-versioned (`linux-image-6.1.0-NNNN-rockchip`) and co-installable; the
 `linux-rockchip` metapackage tracks the latest and keeps the previous one.
-Repo: NL `https://s3.timmertech.nl/apt` (fast) with CAN
-`https://s3.timmertech.io/apt` fallback; suite = noble | jammy, component main, arm64.
+Repo: NL `https://s3.timmertech.nl/rockchip/apt` (fast) with CAN
+`https://s3.timmertech.io/rockchip/apt` fallback; suite = noble | jammy,
+component main, arm64. CAN is the publish origin; NL is a replicated mirror.
 
 ## Bootstrap a node
     sudo ./scripts/enable-kernel-updates.sh && sudo reboot
@@ -736,7 +793,7 @@ Always keep >= 2 kernels installed so a rollback target exists.
 Update one node, reboot, confirm uname -r + dkms status, THEN fan out.
 
 ## Signing key / rotation
-Key: https://s3.timmertech.nl/apt/rockchip-archive-keyring.asc  (ID: <APT_GPG_KEY_ID>)
+Key: https://s3.timmertech.nl/rockchip/apt/rockchip-archive-keyring.asc  (ID: <APT_GPG_KEY_ID>)
 Private key lives only in GitHub Actions secrets. To rotate: generate a new key,
 replace packages/rockchip-archive-keyring/rockchip-archive-keyring.asc, bump the
 keyring deb version, re-run apt-publish. Nodes pick up the new key via apt before
@@ -745,7 +802,7 @@ the old one is retired.
 
 Fill `<APT_GPG_KEY_ID>` and `<OLD>/<BAD>` are operator-fill values.
 
-- [ ] **Step 2: Verify** — `grep -n 's3.timmertech' docs/kernel-updates.md` matches Tasks 5–7; key ID matches `gh variable get APT_GPG_KEY_ID`.
+- [ ] **Step 2: Verify** — `grep -n 's3.timmertech' docs/kernel-updates.md` matches Tasks 6–8; key ID matches `gh variable get APT_GPG_KEY_ID`.
 
 - [ ] **Step 3: Commit**
 
@@ -759,22 +816,24 @@ git commit -m "docs(kernel): runbook for apt kernel updates, rollback, and keep-
 ## Self-Review
 
 **Spec coverage:**
-- "like x86 / co-installable" → native ABI naming + `--preserve-versions` (Task 5) + drop hold (Task 6).
-- "meta tracks latest" → Tasks 2/4 (`linux-rockchip`), installed in Task 7.
-- "host the channel / MinIO + nginx? + registry?" → MinIO direct, no nginx/registry (Architecture); Tasks 1/5.
-- "dual S3 with fallback (NL fast, CAN backup)" → CAN origin-of-truth + `mc mirror` to NL (Task 5); multi-URI source + dual-host pin (Tasks 3/6/7); apt client-side fallback.
-- ".deb that installs repo + GPG" → Task 3 `rockchip-archive-keyring`; bootstrap in Tasks 6/7.
-- "old kernel kept for rollback" → keep-N + runbook (Task 8); canary verifies >= 2 (Task 7).
-- "DKMS still works" → meta pulls `linux-headers-rockchip` (Task 2); canary checks `dkms status` (Task 7).
+- "like x86 / co-installable" → native ABI naming + `--preserve-versions` (Task 6) + drop hold (Task 7).
+- "meta tracks latest" → Tasks 2/4 (`linux-rockchip`), installed in Task 8.
+- "host under rockchip bucket as apt/" → `--prefix apt` on `S3_BUCKET=rockchip` (Task 6); all URLs `…/rockchip/apt` (Tasks 3/7/8/9).
+- "normal structure with versions" → deb-s3 standard `pool/`+`dists/`, version-named debs, `--preserve-versions`.
+- "sync apt/ like releases/images between S3" → `apt/` added to CAN→NL replication (Task 1 Step 2) + 365-day ILM (Tasks 1 Step 3 / Task 5); no bespoke mirror step.
+- ".deb that installs repo + GPG" → Task 3 `rockchip-archive-keyring`; bootstrap in Tasks 7/8.
+- "dual S3 with fallback (NL fast, CAN backup)" → multi-URI source + dual-host pin (Tasks 3/7/8); apt client-side fallback covers replication lag.
+- "old kernel kept for rollback" → keep-N + runbook (Task 9); canary verifies >= 2 (Task 8).
+- "DKMS still works" → meta pulls `linux-headers-rockchip` (Task 2); canary checks `dkms status` (Task 8).
 - "don't break headless nodes" → image pin=100, node opt-in pin=500, BMC rollback runbook.
-- "fix RELASE_VERSION?" → explicitly out of scope (Global Constraints) — load-bearing typo, untouched.
 
-**Placeholder scan:** `<APT_GPG_KEY_ID>`, `<OLD>`, `<BAD>` are intentional operator-fill values, documented as such. All code blocks complete.
+**Placeholder scan:** `<APT_GPG_KEY_ID>`, `<OLD>`, `<BAD>` are intentional operator-fill values. The Task 3 `.asc` placeholder is explicitly the key-later sequencing the human chose. All code blocks complete.
 
-**Type/name consistency:** package names `linux-image-rockchip` / `linux-headers-rockchip` / `linux-rockchip` / `rockchip-archive-keyring` consistent across Tasks 2–7. Keyring path `/usr/share/keyrings/rockchip-archive-keyring.gpg` and source file `/etc/apt/sources.list.d/rockchip-kernel.sources` consistent between the deb postinst (Task 3) and the inspections (Tasks 6/7). Mirror URLs `s3.timmertech.nl` (NL) + `s3.timmertech.io` (CAN) consistent everywhere; deb-s3 endpoint = CAN only.
+**Type/name consistency:** package names `linux-image-rockchip` / `linux-headers-rockchip` / `linux-rockchip` / `rockchip-archive-keyring` consistent across Tasks 2–8. Keyring path `/usr/share/keyrings/rockchip-archive-keyring.gpg` + source `/etc/apt/sources.list.d/rockchip-kernel.sources` consistent between Task 3 postinst and Tasks 7/8 inspections. Repo URLs `…/rockchip/apt` and pin origins `s3.timmertech.nl`/`s3.timmertech.io` consistent everywhere; deb-s3 publishes to `S3_BUCKET` (=rockchip) `--prefix apt` on CAN only.
 
 **Known residual risks (flagged, not gaps):**
-- `deb-s3 --force-path-style` support varies by version — Task 5 documents the CNAME fallback.
-- Mid-mirror window (NL has a new `Release` but a pool deb not yet copied) → apt's CAN fallback covers it; `mc mirror` never deletes (`--overwrite`, no `--remove`).
-- apt-auto-removal keys on `linux-image-[0-9]` names; our ABI names match, but Task 8 has the operator verify rather than assume.
-- `dpkg -i` of the keyring deb on a fresh node has no deps (arch:all, `${misc:Depends}` only), so no `apt --fix-broken` is needed before `apt-get update`.
+- `deb-s3 --force-path-style` / `--prefix` support varies by version — Task 6 documents the CNAME fallback; verify on first dispatch.
+- Replication lag: NL can briefly trail CAN after a publish → apt's per-file CAN fallback covers a missing/stale NL object. No `mc mirror`, so nothing deletes.
+- CI now **writes** to the `rockchip` bucket (previously read-only for us) but only **adds/overwrites within `apt/`** — never deletes/prunes; the no-delete rule holds.
+- `apt/` index files (`Packages`/`Release`) are overwritten each publish → small noncurrent versions, now reaped at 365d by the ILM rule (Task 5).
+- apt-auto-removal keys on `linux-image-[0-9]` names; our ABI names match, but Task 9 has the operator verify rather than assume.
