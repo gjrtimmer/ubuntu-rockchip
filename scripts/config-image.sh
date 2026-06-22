@@ -165,12 +165,29 @@ else
         cp "${linux_image_package}" "${linux_headers_package}" "${linux_modules_package}" "${linux_buildinfo_package}" "${linux_rockchip_headers_package}" ${chroot_dir}/tmp/
         chroot ${chroot_dir} /bin/bash -c "apt-get -y purge \$(dpkg --list | grep -Ei 'linux-image|linux-headers|linux-modules|linux-rockchip' | awk '{ print \$2 }')"
         chroot ${chroot_dir} /bin/bash -c "dpkg -i /tmp/{${linux_image_package},${linux_modules_package},${linux_buildinfo_package},${linux_rockchip_headers_package}}"
-        chroot ${chroot_dir} apt-mark hold "$(echo "${linux_image_package}" | sed -rn 's/(.*)_[[:digit:]].*/\1/p')"
-        chroot ${chroot_dir} apt-mark hold "$(echo "${linux_modules_package}" | sed -rn 's/(.*)_[[:digit:]].*/\1/p')"
-        chroot ${chroot_dir} apt-mark hold "$(echo "${linux_buildinfo_package}" | sed -rn 's/(.*)_[[:digit:]].*/\1/p')"
-        chroot ${chroot_dir} apt-mark hold "$(echo "${linux_rockchip_headers_package}" | sed -rn 's/(.*)_[[:digit:]].*/\1/p')"
     fi
 fi
+
+# Install the Rockchip kernel APT channel via the keyring bootstrap deb (key + multi-mirror
+# source), then pin it to 100 so it is available but never auto-upgraded on headless nodes.
+# The node owner opts into tracking via scripts/enable-kernel-updates.sh. Board-agnostic.
+../packages/rockchip-archive-keyring/build.sh "$(pwd)"
+keyring_deb="$(basename "$(find rockchip-archive-keyring_*_all.deb | sort -V | tail -n1)")"
+if [ ! -e "${keyring_deb}" ]; then
+    echo 'Error: could not find the rockchip-archive-keyring deb'
+    exit 1
+fi
+cp "${keyring_deb}" "${chroot_dir}/tmp/"
+chroot "${chroot_dir}" dpkg -i "/tmp/${keyring_deb}"
+cat > "${chroot_dir}/etc/apt/preferences.d/rockchip-kernel.pref" <<EOF
+Package: *
+Pin: origin "s3.timmertech.nl"
+Pin-Priority: 100
+
+Package: *
+Pin: origin "s3.timmertech.io"
+Pin-Priority: 100
+EOF
 
 # Update the initramfs (skipped when from a configured base — already baked there;
 # board-hook DKMS packages trigger their own initramfs regeneration regardless).
