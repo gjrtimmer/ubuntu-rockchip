@@ -6,7 +6,7 @@
 #
 #   build/ cache/ ci/ rootfs/   -> 1 day    NOT synced to NL; versions there are useless, so
 #                                            reclaim aggressively (+ drop zombie delete markers).
-#   releases/ images/           -> 365 days synced/mirrored to NL; keep versions as a safety net.
+#   releases/ images/ apt/      -> 365 days synced/mirrored to NL; keep versions as a safety net.
 #                                            (These are published immutably and rarely overwritten,
 #                                             so they accumulate almost no versions anyway.)
 #
@@ -55,7 +55,7 @@ for p in build cache ci rootfs; do
 done
 
 # Synced/published prefixes (mirrored to NL): keep versions as a long safety net.
-for p in releases images; do
+for p in releases images apt; do
   echo "  + ${p}/   noncurrent-expire 365d (retained — NOT aggressively reclaimed)"
   "${MC}" ilm rule add "${target}" --prefix "${p}/" --noncurrent-expire-days 365
 done
