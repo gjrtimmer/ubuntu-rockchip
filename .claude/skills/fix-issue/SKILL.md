@@ -135,7 +135,7 @@ Post the "work started" comment on the issue.
 - Keep the **rootfs board-independent**: board-specific firmware/drivers/services
   go in `config_image_hook__<board>` (chroot) or `build_image_hook__<board>`
   (image), never baked into the rootfs build. (See `CLAUDE.md` → "the two board hooks".)
-- **Never "fix" the `RELASE_VERSION` / `RELASE_NAME` misspelling** — it's load-bearing.
+- Release vars are `RELEASE_VERSION` / `RELEASE_NAME` (corrected from upstream's `RELASE_*` in #70; expect upstream merge conflicts).
 - Don't hand-edit committed upstream blobs (`packages/u-boot-*/rkbin/*`); pin via
   the `debian/upstream`/`patches/` overlay instead.
 - Only `Read` files you are about to `Edit` (not for analysis — use `ctx`/`semble`).

@@ -155,7 +155,7 @@ teardown_mountpoint $chroot_dir
 # prefers it over the raw *.rootfs.tar.xz. xz -3 -T0 matches the image-compression
 # speed/size tradeoff.
 mkdir -p base
-base_tar="ubuntu-${RELASE_VERSION}-${rootfs_month}-preinstalled-${FLAVOR}-arm64.base.tar"
+base_tar="ubuntu-${RELEASE_VERSION}-${rootfs_month}-preinstalled-${FLAVOR}-arm64.base.tar"
 cd ${chroot_dir} && tar -cpf "../base/${base_tar}" . && cd .. && rm -rf --one-file-system ${chroot_dir}
 xz -3 --force --quiet --threads=0 "base/${base_tar}"
 echo "Built base/${base_tar}.xz"

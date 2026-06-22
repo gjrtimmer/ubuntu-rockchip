@@ -108,7 +108,7 @@ Use gh, git, ctx, and semble. Do not handwave.
 Checkout/create fix/<n>-short-desc from BASE_BRANCH.
 Implement the MINIMAL fix. Keep the rootfs board-independent: board-specific
   changes go in config/boards/<board>.sh hooks or scripts/, never baked into the
-  rootfs build. Never "fix" the RELASE_VERSION/RELASE_NAME misspelling.
+  rootfs build. Release vars are RELEASE_VERSION/RELEASE_NAME (corrected from upstream RELASE_*, #70).
 Verify by dispatching CI: gh workflow run build.yml -f board=.. -f suite=.. -f flavor=..
   then poll the run; if the change is hardware-only, say so instead of claiming verified.
 Commit with a Conventional Commits message + footer:

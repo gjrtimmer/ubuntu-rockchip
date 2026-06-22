@@ -94,6 +94,6 @@ PY
 
 - **Never publish secrets**: no passwords, tokens, private emails, or PII — refer to such things generically (e.g. "contains hardcoded passwords that must be removed before porting"). GitHub usernames as contribution attribution are fine. (Org policy: privacy/security first.)
 - The `.work` corpus is **gitignored local scratch**; the wiki is its published home. Don't assume readers can see `.work`.
-- Preserve the deliberate `RELASE_VERSION` / `RELASE_NAME` misspelling verbatim — never "correct" it.
+- Use `RELEASE_VERSION` / `RELEASE_NAME` (corrected from upstream's `RELASE_*` misspelling in #70).
 - Keep the rootfs-is-board-independent framing: board specifics live in `config_image_hook__` / `build_image_hook__`, never in the shared rootfs.
 - Verification of the build itself is "dispatch CI and read the result," not local runs (root + arm64 only) — see `CLAUDE.md` and the `fix-issue` skill.
