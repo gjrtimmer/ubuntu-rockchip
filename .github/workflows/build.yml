@@ -427,6 +427,7 @@ jobs:
     if: ${{ !failure() && !cancelled() }}
     name: Build image
     strategy:
+      fail-fast: false
       matrix: ${{ fromJson(needs.config.outputs.build_matrix) }}
     steps:
       - name: Reset workspace

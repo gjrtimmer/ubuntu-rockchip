@@ -47,6 +47,15 @@ if [[ ${LAUNCHPAD} != "Y" ]]; then
         exit 1
     fi
 
+    # The per-flavor kernel headers create /lib/modules/<ver>/build, which board-hook DKMS
+    # modules (e.g. bcmdhd-sdio-dkms, aic8800) need to build against the rockchip kernel.
+    # Without them, DKMS in the chroot falls back to the host's `uname -r` and fails.
+    linux_headers_package="$(basename "$(find linux-headers-*.deb | sort | tail -n1)")"
+    if [ ! -e "$linux_headers_package" ]; then
+        echo "Error: could not find the linux headers package"
+        exit 1
+    fi
+
     linux_modules_package="$(basename "$(find linux-modules-*.deb | sort | tail -n1)")"
     if [ ! -e "$linux_modules_package" ]; then
         echo "Error: could not find the linux modules package"
@@ -115,10 +124,12 @@ chroot $chroot_dir apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=60 up
 
 # Install the locally-built kernel (skipped for --launchpad: already in the rootfs).
 if [[ ${LAUNCHPAD} != "Y" ]]; then
-    cp "${linux_image_package}" "${linux_modules_package}" "${linux_buildinfo_package}" "${linux_rockchip_headers_package}" ${chroot_dir}/tmp/
+    cp "${linux_image_package}" "${linux_headers_package}" "${linux_modules_package}" "${linux_buildinfo_package}" "${linux_rockchip_headers_package}" ${chroot_dir}/tmp/
     chroot ${chroot_dir} /bin/bash -c "apt-get -y purge \$(dpkg --list | grep -Ei 'linux-image|linux-headers|linux-modules|linux-rockchip' | awk '{ print \$2 }')"
-    chroot ${chroot_dir} /bin/bash -c "dpkg -i /tmp/{${linux_image_package},${linux_modules_package},${linux_buildinfo_package},${linux_rockchip_headers_package}}"
+    # linux-rockchip-headers before linux-headers-<ver>: the per-flavor headers depend on it.
+    chroot ${chroot_dir} /bin/bash -c "dpkg -i /tmp/{${linux_image_package},${linux_modules_package},${linux_buildinfo_package},${linux_rockchip_headers_package},${linux_headers_package}}"
     chroot ${chroot_dir} apt-mark hold "$(echo "${linux_image_package}" | sed -rn 's/(.*)_[[:digit:]].*/\1/p')"
+    chroot ${chroot_dir} apt-mark hold "$(echo "${linux_headers_package}" | sed -rn 's/(.*)_[[:digit:]].*/\1/p')"
     chroot ${chroot_dir} apt-mark hold "$(echo "${linux_modules_package}" | sed -rn 's/(.*)_[[:digit:]].*/\1/p')"
     chroot ${chroot_dir} apt-mark hold "$(echo "${linux_buildinfo_package}" | sed -rn 's/(.*)_[[:digit:]].*/\1/p')"
     chroot ${chroot_dir} apt-mark hold "$(echo "${linux_rockchip_headers_package}" | sed -rn 's/(.*)_[[:digit:]].*/\1/p')"
