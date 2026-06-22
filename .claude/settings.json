@@ -6,5 +6,15 @@
     "github",
     "semble",
     "ruflo"
-  ]
+  ],
+  "permissions": {
+    "deny": [
+      "Bash(mc rm:*)",
+      "Bash(mc rb:*)",
+      "Bash(mc rm)",
+      "Bash(mc rb)",
+      "Bash(can rm:*)",
+      "Bash(can rb:*)"
+    ]
+  }
 }
