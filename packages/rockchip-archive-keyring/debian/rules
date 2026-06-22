@@ -1,0 +1,8 @@
+#!/usr/bin/make -f
+%:
+	dh $@
+
+override_dh_install:
+	install -d debian/rockchip-archive-keyring/usr/share/keyrings
+	gpg --dearmor < rockchip-archive-keyring.asc \
+	  > debian/rockchip-archive-keyring/usr/share/keyrings/rockchip-archive-keyring.gpg

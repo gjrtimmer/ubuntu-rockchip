@@ -1,0 +1,5 @@
+rockchip-archive-keyring (1.0) noble; urgency=medium
+
+  * Initial keyring + apt source for the Rockchip kernel repo (rockchip/apt; NL + CAN).
+
+ -- Ubuntu Rockchip CI <ci@timmertech.io>  Mon, 22 Jun 2026 00:00:00 +0000

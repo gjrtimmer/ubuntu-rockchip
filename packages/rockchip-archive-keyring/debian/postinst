@@ -1,0 +1,17 @@
+#!/bin/sh
+set -e
+case "$1" in
+  configure)
+    . /etc/os-release
+    cat > /etc/apt/sources.list.d/rockchip-kernel.sources <<EOF
+Types: deb
+URIs: https://s3.timmertech.nl/rockchip/apt https://s3.timmertech.io/rockchip/apt
+Suites: ${VERSION_CODENAME}
+Components: main
+Architectures: arm64
+Signed-By: /usr/share/keyrings/rockchip-archive-keyring.gpg
+EOF
+    ;;
+esac
+#DEBHELPER#
+exit 0

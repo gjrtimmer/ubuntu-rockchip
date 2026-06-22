@@ -1,0 +1,13 @@
+Source: rockchip-archive-keyring
+Section: misc
+Priority: optional
+Maintainer: Ubuntu Rockchip CI <ci@timmertech.io>
+Build-Depends: debhelper-compat (= 13), gnupg
+Standards-Version: 4.6.2
+
+Package: rockchip-archive-keyring
+Architecture: all
+Depends: ${misc:Depends}
+Description: GnuPG archive keyring and APT source for the Rockchip kernel repo
+ Installs the signing key and the apt source (NL fast mirror, CAN fallback)
+ for the Ubuntu Rockchip kernel archive, so apt can fetch signed kernel updates.
