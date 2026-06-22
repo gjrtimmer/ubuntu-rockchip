@@ -128,8 +128,11 @@ The `apt-get install …` block in the workflows is the authoritative host-build
 - **NEVER delete anything from the MinIO `rockchip` bucket** (mc alias `can`, `s3.timmertech.io`). It holds the
   only copies of published images, manifests, and build caches. Do **not** run `mc rm`, `mc rb`, `mc mv`, or any
   destructive mc operation against it — `mc rm`/`mc rb` are denied in `.claude/settings.json`. Read-only analysis
-  only (`mc ls`, `mc du`, `mc stat`). Pruning is owned solely by the dedicated CI steps
-  (`ci-s3.sh prune` / `prune-month`) — never delete by hand.
+  only (`mc ls`, `mc du`, `mc stat`). Current-version pruning is owned solely by the dedicated CI steps
+  (`ci-s3.sh prune` / `prune-month` in `cleanup.yml`, every 12h) — never delete by hand. The bucket has
+  **versioning enabled**; noncurrent versions self-purge **server-side** via ILM lifecycle rules
+  (`scripts/s3-ilm-setup.sh`, applied by the `s3-lifecycle.yml` manual workflow): 1 day for the non-synced
+  prefixes (`build/ cache/ ci/ rootfs/`), 365 days for the synced ones (`releases/ images/`, mirrored to NL).
 - Final images are **`.img.xz`** (never `.zst` — balenaEtcher cannot read zstd). Compression is `xz -3 -T0`
   in `build-image.sh` — tuned for build speed over ratio; `-T0` already saturates all cores, so the preset is
   the only lever.

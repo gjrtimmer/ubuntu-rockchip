@@ -1,0 +1,26 @@
+name: S3 Lifecycle
+run-name: Configure bucket version-retention (ILM)
+
+# One-shot, manual configuration of the bucket's object-lifecycle rules — see
+# scripts/s3-ilm-setup.sh. Re-run after changing the retention policy. The rules are applied
+# SERVER-SIDE; MinIO then purges noncurrent versions on its own ILM scan, so this is not a
+# recurring job (the every-12h Cleanup workflow handles current-version pruning).
+on:
+  workflow_dispatch:
+
+jobs:
+  lifecycle:
+    runs-on: [self-hosted, ARM64, RK1]
+    name: Apply ILM rules
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7.0.0
+
+      - name: Apply S3 lifecycle rules
+        shell: bash
+        env:
+          S3_HOST: ${{ secrets.S3_HOST }}
+          S3_CLIENT_ID: ${{ secrets.S3_CLIENT_ID }}
+          S3_CLIENT_SECRET: ${{ secrets.S3_CLIENT_SECRET }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: ./scripts/s3-ilm-setup.sh
