@@ -190,6 +190,6 @@ teardown_mountpoint $chroot_dir
 # --one-file-system guards the post-teardown delete: if teardown_mountpoint left anything
 # mounted under ${chroot_dir} (e.g. the devtmpfs at ${chroot_dir}/dev), rm stops at the
 # mount boundary instead of recursing into the kernel-global devtmpfs and unlinking host /dev/null.
-cd ${chroot_dir} && tar -cpf "../ubuntu-${RELASE_VERSION}-${rootfs_month}-preinstalled-${FLAVOR}-arm64-${BOARD}.rootfs.tar" . && cd .. && rm -rf --one-file-system ${chroot_dir}
-../scripts/build-image.sh "ubuntu-${RELASE_VERSION}-${rootfs_month}-preinstalled-${FLAVOR}-arm64-${BOARD}.rootfs.tar"
-rm -f "ubuntu-${RELASE_VERSION}-${rootfs_month}-preinstalled-${FLAVOR}-arm64-${BOARD}.rootfs.tar"
+cd ${chroot_dir} && tar -cpf "../ubuntu-${RELEASE_VERSION}-${rootfs_month}-preinstalled-${FLAVOR}-arm64-${BOARD}.rootfs.tar" . && cd .. && rm -rf --one-file-system ${chroot_dir}
+../scripts/build-image.sh "ubuntu-${RELEASE_VERSION}-${rootfs_month}-preinstalled-${FLAVOR}-arm64-${BOARD}.rootfs.tar"
+rm -f "ubuntu-${RELEASE_VERSION}-${rootfs_month}-preinstalled-${FLAVOR}-arm64-${BOARD}.rootfs.tar"

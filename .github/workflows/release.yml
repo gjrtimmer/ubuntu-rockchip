@@ -137,7 +137,7 @@ jobs:
         id: vars
         run: |
           source config/suites/${{ matrix.suite }}.sh
-          echo "suite_version=$RELASE_VERSION" >> $GITHUB_OUTPUT
+          echo "suite_version=$RELEASE_VERSION" >> $GITHUB_OUTPUT
 
       - name: Resolve rootfs cache key
         id: rfkey
@@ -384,7 +384,7 @@ jobs:
         id: vars
         run: |
           source config/suites/${{ matrix.suite }}.sh
-          echo "suite_version=$RELASE_VERSION" >> $GITHUB_OUTPUT
+          echo "suite_version=$RELEASE_VERSION" >> $GITHUB_OUTPUT
 
       - name: Fetch rootfs from S3 (CI handoff)
         shell: bash
@@ -498,7 +498,7 @@ jobs:
         id: vars
         run: |
           source config/suites/${{ matrix.suite }}.sh
-          echo "suite_version=$RELASE_VERSION" >> $GITHUB_OUTPUT
+          echo "suite_version=$RELEASE_VERSION" >> $GITHUB_OUTPUT
 
       - name: Fetch rootfs from S3 (CI handoff)
         shell: bash

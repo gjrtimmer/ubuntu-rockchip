@@ -49,7 +49,7 @@ env vars and define shell-function hooks), then calls the `scripts/` in order. S
 and files under `build/`.
 
 ```
-config/suites/<suite>.sh    ─┐  (RELASE_VERSION, KERNEL_REPO/BRANCH, EXTRA_PPAS)
+config/suites/<suite>.sh    ─┐  (RELEASE_VERSION, KERNEL_REPO/BRANCH, EXTRA_PPAS)
 config/flavors/<flavor>.sh  ─┼─ sourced into env by build.sh / each script
 config/boards/<board>.sh    ─┘  (UBOOT_PACKAGE, UBOOT_RULES_TARGET, COMPATIBLE_*, hooks)
 config/bases/<group>.sh        (BASE_SOCS, BASE_SUITES/FLAVORS, config_base_hook__<group> — shared SoC firmware layer)
@@ -139,8 +139,9 @@ The `apt-get install …` block in the workflows is the authoritative host-build
 - **Never `apt upgrade` / `dist-upgrade` for currency in the pipeline.** Images ship the pinned monthly rootfs
   snapshot; upgrading is the end-user's job post-install. (The panfork `dist-upgrade` in the base/board hook is a
   mesa→panfork firmware swap, not a currency upgrade — that one stays.)
-- The env var is misspelled **`RELASE_VERSION`** / `RELASE_NAME` (no second "E") throughout — match the existing
-  spelling; do **not** "fix" it or you break every script that reads it.
+- The release env vars are **`RELEASE_VERSION`** / `RELEASE_NAME` (defined in `config/suites/*.sh`). Upstream
+  `Joshua-Riek/ubuntu-rockchip` spells these `RELASE_*` (no second "E"); this fork corrected them (#70), so expect
+  merge conflicts on these lines when syncing upstream — keep the corrected spelling.
 - Commits and PR titles must be **Conventional Commits** (enforced on PR titles by CI; see above).
 - Scripts assume a re-entrant `build/`: each stage guards work with `find … | tail -n1` existence checks and
   skips recompiling if the artifact exists. To force a rebuild of one stage, delete its `build/` artifact or `--clean`.

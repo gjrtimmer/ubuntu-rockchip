@@ -30,7 +30,7 @@ fi
 source "../config/flavors/${FLAVOR}.sh"
 
 rootfs_month=$(date -u +%Y%m)
-if [[ -f ubuntu-${RELASE_VERSION}-${rootfs_month}-preinstalled-${FLAVOR}-arm64.rootfs.tar.xz ]]; then
+if [[ -f ubuntu-${RELEASE_VERSION}-${rootfs_month}-preinstalled-${FLAVOR}-arm64.rootfs.tar.xz ]]; then
     exit 0
 fi
 
@@ -168,5 +168,5 @@ if [ ! -d chroot/usr ] || [ -z "$(ls -A chroot/usr 2>/dev/null)" ]; then
 fi
 
 # Tar the entire rootfs
-(cd chroot/ &&  tar -p -c --sort=name --xattrs ./*) | xz -3 -T0 > "ubuntu-${RELASE_VERSION}-${rootfs_month}-preinstalled-${FLAVOR}-arm64.rootfs.tar.xz"
-mv "ubuntu-${RELASE_VERSION}-${rootfs_month}-preinstalled-${FLAVOR}-arm64.rootfs.tar.xz" ../
+(cd chroot/ &&  tar -p -c --sort=name --xattrs ./*) | xz -3 -T0 > "ubuntu-${RELEASE_VERSION}-${rootfs_month}-preinstalled-${FLAVOR}-arm64.rootfs.tar.xz"
+mv "ubuntu-${RELEASE_VERSION}-${rootfs_month}-preinstalled-${FLAVOR}-arm64.rootfs.tar.xz" ../
