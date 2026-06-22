@@ -1,0 +1,30 @@
+Source: linux-meta-rockchip
+Section: kernel
+Priority: optional
+Maintainer: Ubuntu Rockchip CI <ci@timmertech.io>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.6.2
+
+Package: linux-image-rockchip
+Architecture: arm64
+Depends: ${misc:Depends}, linux-image-@ABI@
+Description: Rockchip kernel image metapackage
+ This metapackage always depends on the latest Rockchip kernel image.
+ Upgrading it pulls a newer kernel while leaving the previous one installed,
+ so a known-good kernel remains available for rollback.
+
+Package: linux-headers-rockchip
+Architecture: arm64
+Depends: ${misc:Depends}, linux-headers-@ABI@
+Description: Rockchip kernel headers metapackage
+ Pulls the headers matching the latest Rockchip kernel so that DKMS modules
+ (GPU, Wi-Fi) rebuild against the running kernel on upgrade.
+
+Package: linux-rockchip
+Architecture: arm64
+Depends: ${misc:Depends},
+ linux-image-rockchip (= ${binary:Version}),
+ linux-headers-rockchip (= ${binary:Version})
+Description: Rockchip kernel metapackage (image + headers)
+ Convenience metapackage pulling both the image and headers metapackages.
+ Install this on a node to track the latest Rockchip kernel via apt.
