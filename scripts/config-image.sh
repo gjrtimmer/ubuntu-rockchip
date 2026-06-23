@@ -171,15 +171,19 @@ fi
 # Install the Rockchip kernel APT channel via the keyring bootstrap deb (key + multi-mirror
 # source), then pin it to 100 so it is available but never auto-upgraded on headless nodes.
 # The node owner opts into tracking via scripts/enable-kernel-updates.sh. Board-agnostic.
-../packages/rockchip-archive-keyring/build.sh "$(pwd)"
-keyring_deb="$(basename "$(find rockchip-archive-keyring_*_all.deb | sort -V | tail -n1)")"
-if [ ! -e "${keyring_deb}" ]; then
-    echo 'Error: could not find the rockchip-archive-keyring deb'
-    exit 1
-fi
-cp "${keyring_deb}" "${chroot_dir}/tmp/"
-chroot "${chroot_dir}" dpkg -i "/tmp/${keyring_deb}"
-cat > "${chroot_dir}/etc/apt/preferences.d/rockchip-kernel.pref" <<EOF
+# The signing key may still be a placeholder (key-later bootstrap); only wire the channel when a
+# real OpenPGP key is committed, otherwise skip so image builds keep working. No in-chroot
+# apt-get update here on purpose: the node fetches the index on its first boot-time apt update.
+if gpg --dearmor < ../packages/rockchip-archive-keyring/rockchip-archive-keyring.asc >/dev/null 2>&1; then
+    ../packages/rockchip-archive-keyring/build.sh "$(pwd)"
+    keyring_deb="$(basename "$(find rockchip-archive-keyring_*_all.deb | sort -V | tail -n1)")"
+    if [ ! -e "${keyring_deb}" ]; then
+        echo 'Error: could not find the rockchip-archive-keyring deb'
+        exit 1
+    fi
+    cp "${keyring_deb}" "${chroot_dir}/tmp/"
+    chroot "${chroot_dir}" dpkg -i "/tmp/${keyring_deb}"
+    cat > "${chroot_dir}/etc/apt/preferences.d/rockchip-kernel.pref" <<EOF
 Package: *
 Pin: origin "s3.timmertech.nl"
 Pin-Priority: 100
@@ -188,6 +192,9 @@ Package: *
 Pin: origin "s3.timmertech.io"
 Pin-Priority: 100
 EOF
+else
+    echo "Skipping Rockchip kernel APT channel: signing key is a placeholder (see packages/rockchip-archive-keyring/README.md)."
+fi
 
 # Update the initramfs (skipped when from a configured base — already baked there;
 # board-hook DKMS packages trigger their own initramfs regeneration regardless).
