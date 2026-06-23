@@ -69,10 +69,12 @@ jobs:
             build/linux-rockchip_*.deb \
             build/rockchip-archive-keyring_*_all.deb
 
-      - name: Publish stable-named keyring deb for bootstrap
+      - name: Publish bootstrap deb + node-channel script
         env:
           MC_HOST_can: https://${{ secrets.S3_CLIENT_ID }}:${{ secrets.S3_CLIENT_SECRET }}@s3.timmertech.io
           S3_BUCKET: ${{ secrets.S3_BUCKET }}
         run: |
           deb=$(ls build/rockchip-archive-keyring_*_all.deb | sort -V | tail -n1)
           mc cp "$deb" "can/${S3_BUCKET}/apt/rockchip-archive-keyring.deb"
+          # Public curl|bash bootstrap shown on the website; replication mirrors it to NL.
+          mc cp scripts/rockchip-kernel-channel.sh "can/${S3_BUCKET}/apt/rockchip-kernel-channel.sh"

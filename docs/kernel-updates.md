@@ -8,8 +8,11 @@ Repo: NL `https://s3.timmertech.nl/rockchip/apt` (fast) with CAN
 component main, arm64. CAN is the publish origin; NL is a replicated mirror.
 
 ## Bootstrap a node
-    sudo ./scripts/enable-kernel-updates.sh && sudo reboot
-(Downloads `rockchip-archive-keyring.deb`, installs key + source, then tracks via apt.)
+    curl -fsSL https://s3.timmertech.nl/rockchip/apt/rockchip-kernel-channel.sh | sudo bash
+    sudo reboot
+Fetches the one-shot bootstrap from the public mirror; it installs the GPG-signed keyring
+deb + apt source, unholds the kernel, and installs the `linux-rockchip` metapackage.
+CAN fallback URL: https://s3.timmertech.io/rockchip/apt/rockchip-kernel-channel.sh
 
 ## Routine update
     sudo apt update && sudo apt upgrade   # pulls a new kernel if one was published

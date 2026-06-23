@@ -54,7 +54,7 @@ The signing key is the trust root for every node's kernel. Compromise = arbitrar
 | `scripts/s3-ilm-setup.sh` | Add `apt/` to the 365-day retention prefixes | Modify |
 | `.github/workflows/apt-publish.yml` | Build kernel+meta+keyring, GPG-sign, `deb-s3`→`rockchip/apt` on CAN (replicates to NL) | Create |
 | `scripts/config-image.sh` | Build+install keyring deb, write pin=100, drop kernel `hold` (common section) | Modify |
-| `scripts/enable-kernel-updates.sh` | Fleet one-shot: download keyring deb, pin=500, unhold, install meta | Create |
+| `scripts/rockchip-kernel-channel.sh` | Fleet one-shot: download keyring deb, pin=500, unhold, install meta | Create |
 | `docs/kernel-updates.md` | End-user + operator runbook (bootstrap, rollback, keep-N, BMC recovery, canary) | Create |
 
 ---
@@ -624,7 +624,7 @@ Then, just before the initramfs step ([config-image.sh:177](../../scripts/config
 ```bash
 # Install the Rockchip kernel APT channel via the keyring bootstrap deb (key + multi-mirror
 # source), then pin it to 100 so it is available but never auto-upgraded on headless nodes.
-# The node owner opts into tracking via scripts/enable-kernel-updates.sh. Board-agnostic.
+# The node owner opts into tracking via scripts/rockchip-kernel-channel.sh. Board-agnostic.
 ../packages/rockchip-archive-keyring/build.sh "$(pwd)"
 keyring_deb="$(basename "$(find rockchip-archive-keyring_*_all.deb | sort -V | tail -n1)")"
 cp "${keyring_deb}" "${chroot_dir}/tmp/"
@@ -674,7 +674,7 @@ Expected: channel present (both URIs under `rockchip/apt`), kernel not held, pri
 Flips an already-flashed node from "pinned, not tracking" to "tracks latest kernel". Bootstrap = download the keyring deb directly (NL, fall back to CAN), `dpkg -i`, then pin=500 + install meta. After the first install the keyring updates itself via apt.
 
 **Files:**
-- Create: `scripts/enable-kernel-updates.sh`
+- Create: `scripts/rockchip-kernel-channel.sh`
 
 **Interfaces:**
 - Consumes: the published bootstrap deb + repo (Tasks 1/6).
@@ -721,20 +721,20 @@ dpkg --list 'linux-image-*-rockchip' | awk '/^ii/{print "  " $2}'
 echo "Reboot to boot the newest kernel. Previous kernel stays in the boot menu for rollback."
 ```
 
-- [ ] **Step 2: Lint (local gate)** — `shellcheck scripts/enable-kernel-updates.sh` → no errors (the `unhold ${held}` word-split is intentional; add `# shellcheck disable=SC2086` to silence).
+- [ ] **Step 2: Lint (local gate)** — `shellcheck scripts/rockchip-kernel-channel.sh` → no errors (the `unhold ${held}` word-split is intentional; add `# shellcheck disable=SC2086` to silence).
 
 - [ ] **Step 3: Commit**
 
 ```bash
-chmod +x scripts/enable-kernel-updates.sh
-git add scripts/enable-kernel-updates.sh
-git commit -m "feat(nodes): add enable-kernel-updates.sh to opt a node into apt kernel tracking"
+chmod +x scripts/rockchip-kernel-channel.sh
+git add scripts/rockchip-kernel-channel.sh
+git commit -m "feat(nodes): add rockchip-kernel-channel.sh to opt a node into apt kernel tracking"
 ```
 
 - [ ] **Step 4: Full gate — canary ONE RK1 node** (operator, with BMC serial access ready)
 
 ```bash
-sudo ./enable-kernel-updates.sh
+sudo ./rockchip-kernel-channel.sh
 uname -r                                   # note the OLD version
 sudo reboot
 # After reboot:
@@ -765,7 +765,7 @@ Repo: NL `https://s3.timmertech.nl/rockchip/apt` (fast) with CAN
 component main, arm64. CAN is the publish origin; NL is a replicated mirror.
 
 ## Bootstrap a node
-    sudo ./scripts/enable-kernel-updates.sh && sudo reboot
+    sudo ./scripts/rockchip-kernel-channel.sh && sudo reboot
 (Downloads `rockchip-archive-keyring.deb`, installs key + source, then tracks via apt.)
 
 ## Routine update

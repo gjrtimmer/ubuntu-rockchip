@@ -1,9 +1,11 @@
 #!/bin/bash
-# Enable Ubuntu-style kernel updates on an already-running Rockchip node.
-# Run as root ON THE NODE. Idempotent. Reboot afterwards to use the new kernel.
+# Opt an already-running Rockchip node into Ubuntu-style kernel updates.
+# Idempotent. Designed to be curl-piped from the public mirror, e.g.:
+#   curl -fsSL https://s3.timmertech.nl/rockchip/apt/rockchip-kernel-channel.sh | sudo bash
+# Run as root ON THE NODE; reboot afterwards to boot the new kernel.
 set -euo pipefail
 
-[ "$(id -u)" -eq 0 ] || { echo "run as root"; exit 1; }
+[ "$(id -u)" -eq 0 ] || { echo "run as root (e.g. pipe to 'sudo bash')"; exit 1; }
 
 # Bootstrap: download the keyring deb (NL fast, CAN fallback) and install it.
 # It drops the signing key + the apt source; afterwards it updates itself via apt.

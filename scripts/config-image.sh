@@ -170,7 +170,7 @@ fi
 
 # Install the Rockchip kernel APT channel via the keyring bootstrap deb (key + multi-mirror
 # source), then pin it to 100 so it is available but never auto-upgraded on headless nodes.
-# The node owner opts into tracking via scripts/enable-kernel-updates.sh. Board-agnostic.
+# The node owner opts into tracking via scripts/rockchip-kernel-channel.sh. Board-agnostic.
 # The signing key may still be a placeholder (key-later bootstrap); only wire the channel when a
 # real OpenPGP key is committed, otherwise skip so image builds keep working. No in-chroot
 # apt-get update here on purpose: the node fetches the index on its first boot-time apt update.
