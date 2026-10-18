@@ -28,8 +28,17 @@ if command -v mc >/dev/null 2>&1; then
   MC=mc
 else
   case "$(uname -m)" in aarch64|arm64) MA=arm64;; x86_64|amd64) MA=amd64;; *) MA="$(uname -m)";; esac
+  # dl.min.io now returns HTTP 410 (mc client archived upstream), so fetch the pinned last
+  # GitHub release and verify its sha256. Pinned: no further security updates.
+  MC_VERSION=RELEASE.2025-08-13T08-35-41Z
+  case "${MA}" in
+    amd64) MC_SHA256=01f866e9c5f9b87c2b09116fa5d7c06695b106242d829a8bb32990c00312e891;;
+    arm64) MC_SHA256=14c8c9616cfce4636add161304353244e8de383b2e2752c0e9dad01d4c27c12c;;
+    *) echo "unsupported arch for mc: ${MA}" >&2; exit 1;;
+  esac
   MC="$(mktemp -d)/mc"
-  curl -fsSL "https://dl.min.io/client/mc/release/linux-${MA}/mc" -o "${MC}"
+  curl -fsSL "https://github.com/minio/mc/releases/download/${MC_VERSION}/mc.linux-${MA}.${MC_VERSION}" -o "${MC}"
+  echo "${MC_SHA256}  ${MC}" | sha256sum -c -
   chmod +x "${MC}"
 fi
 
